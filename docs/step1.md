@@ -292,6 +292,114 @@ node = BinOp("*", node, ...)      # node = BinOp("*", Num(2), ...)
 
 `input()` で1行受け取り、Lexer → Parser → Evaluator を通して結果を表示する REPL。`Ctrl+C` / `Ctrl+D` で終了。
 
+## Python 初心者向け：コードの読み方
+
+Python 初心者にとって、コード中に出てくる名前のうち「**Python 自体の機能**」と「**このプロジェクトで定義したもの**」を見分けるのが難しい。ここをまとめておく。
+
+### 「Python 独自」と「プロジェクト独自」の見分け方
+
+| 名前 | 出どころ |
+|---|---|
+| `self`, `def`, `return`, `if`, `while`, `class`, `for`, `in`, `is`, `None`, `True`, `False` | Python のキーワード |
+| `int`, `list`, `dict`, `str`, `print` | Python の組み込み型・関数 |
+| `@dataclass`, `Enum`, `auto`, `Union`, `Optional`, `Any` | Python 標準ライブラリ（`dataclasses` / `enum` / `typing`） |
+| `Token`, `TokenKind` | プロジェクト独自（`tokens.py`） |
+| `Num`, `BinOp`, `Var`, `Assign`, `Print`, `If`, `While`, `Block` | プロジェクト独自（`ast_nodes.py`） |
+| `Lexer`, `Parser`, `Env`, `Function` | プロジェクト独自のクラス |
+
+**不明な名前に出会ったら、まずファイル冒頭の `from ... import ...` を辿る**のが基本動作。プロジェクト独自の名前は必ずどこかで `class ...` か `def ...` で定義されているので、import 文が「定義の所在地マップ」になる。
+
+### 命名の慣習
+
+| 慣習 | 例 | 意味 |
+|---|---|---|
+| **大文字始まり** | `Num`, `BinOp`, `Token`, `Lexer`, `Parser` | **クラス**（型）。インスタンスを作って使う |
+| **小文字＋アンダースコア** | `evaluate`, `_peek`, `tokenize` | 関数・メソッド。呼び出して使う |
+| **全部大文字** | `KEYWORDS`, `COMPARISON_OPS`, `TokenKind.NUMBER` | 定数・enum メンバー |
+| **アンダースコア始まり** | `_peek`, `_advance`, `_factor` | 「クラス内部用」のヒント。外から呼ばない約束 |
+
+`Num(2)` のように大文字始まりに `(...)` が付いていたら「クラスのインスタンスを作っている」、`evaluate(node)` のように小文字始まりなら「関数を呼んでいる」、と読み分けられる。
+
+### `self.tokens[self.pos]` の読み方（リストアクセス）
+
+`_peek()` の中身：
+
+```python
+return self.tokens[self.pos + offset]
+```
+
+部品ごとに：
+
+- `self.tokens` ＝ Parser インスタンスが持つ**トークンのリスト**（`__init__` で `self.tokens = tokens` と保存）
+- `self.pos` ＝ 今のカーソル位置（整数）
+- `self.tokens[X]` ＝ **リストの X 番目を取り出す**（Python のリストアクセス構文）
+- `self.pos + offset` ＝ X を計算で作る
+
+つまり「自分が持っているリストの、今の位置のトークンを返すだけ」。リスト自体は書き換えない（**読み取りのみ**）。
+
+### `self.pos += 1` の読み方（カーソル進行）
+
+`_advance()` の中身：
+
+```python
+def _advance(self) -> Token:
+    t = self.tokens[self.pos]   # 1. 今の位置のトークンを t に
+    self.pos += 1               # 2. カーソルを 1 進める
+    return t                    # 3. t を返す
+```
+
+`self.pos += 1` は `self.pos = self.pos + 1` の短縮形（**Python の augmented assignment**）。**これがカーソルを次のトークンに進める部分**。これがあるから、次に `_peek()` を呼ぶと違うトークンが見える。
+
+`_peek()` と `_advance()` の違いは**カーソルを動かすかどうか**だけ：
+
+| | カーソル | 用途 |
+|---|---|---|
+| `_peek()` | **動かさない** | 「次に何が来るか」を判定したいとき（`if` / `while` の条件） |
+| `_advance()` | **1つ進める** | 判定後、確定して読み取りたいとき |
+
+### `t.kind == TokenKind.NUMBER` の読み方（属性アクセスと比較）
+
+```python
+if t.kind == TokenKind.NUMBER:
+    ...
+```
+
+ここに出てくる名前を1つずつ：
+
+| 名前 | 出どころ | 何者か |
+|---|---|---|
+| `t` | ローカル変数 | `_peek()` などが返した `Token` のインスタンス |
+| `.kind` | tokens.py の属性 | `@dataclass class Token` の `kind: TokenKind` フィールド |
+| `TokenKind` | tokens.py の enum | `class TokenKind(Enum)` |
+| `.NUMBER` | TokenKind のメンバー | `NUMBER = auto()` で定義 |
+| `==` | Python の比較演算子 | 等しいかを bool（`True` / `False`）で返す |
+
+意味は「**`t` のフィールド `kind` が `TokenKind.NUMBER` と等しいか？**」＝「次のトークンは数字か？」の判定。
+
+### `Num(2)` の読み方（クラスのコンストラクタ呼び出し）
+
+```python
+return Num(int(t.value))
+```
+
+`Num` は **Python の組み込みではなく、`ast_nodes.py` で定義したクラス**：
+
+```python
+@dataclass
+class Num:
+    value: int
+```
+
+`Num(2)` と書くと、`@dataclass` が自動生成した `__init__(value=2)` が呼ばれて、`value` が 2 のインスタンスができる。**プロジェクト独自の型**。
+
+見た目は関数呼び出し（`func(...)`）に似ているが、**大文字始まり**なのでクラス＝「インスタンスを作っている」と読める。同様に：
+
+- `BinOp("+", left, right)` ＝ BinOp のインスタンスを作る
+- `Token(TokenKind.NUMBER, "2")` ＝ Token のインスタンスを作る
+- `Lexer(source)` ＝ Lexer のインスタンスを作る
+
+`int(t.value)` の `int` は **Python の組み込み型**（小文字始まり）。文字列を整数に変換する。同じ「`X(...)`」の形でも、X が何者かで意味が変わる。
+
 ## 完了の判定
 
 以下が動けば step 1 完了：
