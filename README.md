@@ -144,6 +144,7 @@ minilang/
 ├── docs/              各ステップの実装手順と差分、用語集
 │   ├── step1.md
 │   ├── step2.md
+│   ├── step3.md
 │   └── glossary.md
 ├── main.py            REPL エントリ（現在のステップ）
 ├── tokens.py          Token / TokenKind 定義

@@ -14,18 +14,6 @@ class TokenKind(Enum):
     EQUAL = auto()
     SEMICOLON = auto()
     PRINT = auto()
-    # step 3
-    IF = auto()
-    ELSE = auto()
-    WHILE = auto()
-    LBRACE = auto()
-    RBRACE = auto()
-    EQEQ = auto()
-    BANGEQ = auto()
-    LT = auto()
-    GT = auto()
-    LTEQ = auto()
-    GTEQ = auto()
     EOF = auto()
 
 

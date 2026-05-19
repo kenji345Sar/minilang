@@ -1,12 +1,11 @@
 from dataclasses import dataclass
-from typing import Union, Optional
+from typing import Union
 
 
 Node = Union[
     "Num", "BinOp", "Var",
     "Assign", "Print", "ExprStmt",
     "Program",
-    "If", "While", "Block",
 ]
 
 
@@ -45,22 +44,4 @@ class ExprStmt:
 
 @dataclass
 class Program:
-    statements: list[Node]
-
-
-@dataclass
-class If:
-    cond: Node
-    then_block: Node
-    else_block: Optional[Node]
-
-
-@dataclass
-class While:
-    cond: Node
-    body: Node
-
-
-@dataclass
-class Block:
     statements: list[Node]

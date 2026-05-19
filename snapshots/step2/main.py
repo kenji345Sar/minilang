@@ -19,7 +19,7 @@ def run(source: str, env: dict[str, Any]):
 
 
 def main():
-    print("minilang step 3: if / while")
+    print("minilang step 2: variables and print")
     print("type 'exit' or 'quit' to leave (Ctrl+C / Ctrl+D も可)")
     env: dict[str, Any] = {}
     while True:

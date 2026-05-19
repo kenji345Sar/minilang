@@ -3,18 +3,7 @@ from ast_nodes import (
     Num, BinOp, Var,
     Assign, Print, ExprStmt,
     Program, Node,
-    If, While, Block,
 )
-
-
-COMPARISON_OPS = {
-    TokenKind.EQEQ: "==",
-    TokenKind.BANGEQ: "!=",
-    TokenKind.LT: "<",
-    TokenKind.GT: ">",
-    TokenKind.LTEQ: "<=",
-    TokenKind.GTEQ: ">=",
-}
 
 
 class Parser:
@@ -43,39 +32,11 @@ class Parser:
 
     def _statement(self) -> Node:
         t = self._peek()
-        if t.kind == TokenKind.IF:
-            return self._if_stmt()
-        if t.kind == TokenKind.WHILE:
-            return self._while_stmt()
         if t.kind == TokenKind.PRINT:
             return self._print_stmt()
         if t.kind == TokenKind.IDENT and self._peek(1).kind == TokenKind.EQUAL:
             return self._assign_stmt()
         return self._expr_stmt()
-
-    def _if_stmt(self) -> If:
-        self._advance()
-        cond = self._expr()
-        then_block = self._block()
-        else_block = None
-        if self._peek().kind == TokenKind.ELSE:
-            self._advance()
-            else_block = self._block()
-        return If(cond, then_block, else_block)
-
-    def _while_stmt(self) -> While:
-        self._advance()
-        cond = self._expr()
-        body = self._block()
-        return While(cond, body)
-
-    def _block(self) -> Block:
-        self._expect(TokenKind.LBRACE)
-        statements: list[Node] = []
-        while self._peek().kind not in (TokenKind.RBRACE, TokenKind.EOF):
-            statements.append(self._statement())
-        self._expect(TokenKind.RBRACE)
-        return Block(statements)
 
     def _print_stmt(self) -> Print:
         self._advance()
@@ -102,17 +63,6 @@ class Parser:
             self._advance()
 
     def _expr(self) -> Node:
-        return self._comparison()
-
-    def _comparison(self) -> Node:
-        node = self._additive()
-        if self._peek().kind in COMPARISON_OPS:
-            op = COMPARISON_OPS[self._advance().kind]
-            right = self._additive()
-            node = BinOp(op, node, right)
-        return node
-
-    def _additive(self) -> Node:
         node = self._term()
         while self._peek().kind in (TokenKind.PLUS, TokenKind.MINUS):
             op = "+" if self._advance().kind == TokenKind.PLUS else "-"

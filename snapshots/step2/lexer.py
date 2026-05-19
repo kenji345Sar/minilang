@@ -1,12 +1,7 @@
 from tokens import Token, TokenKind
 
 
-KEYWORDS = {
-    "print": TokenKind.PRINT,
-    "if": TokenKind.IF,
-    "else": TokenKind.ELSE,
-    "while": TokenKind.WHILE,
-}
+KEYWORDS = {"print": TokenKind.PRINT}
 
 
 class Lexer:
@@ -42,52 +37,16 @@ class Lexer:
             elif ch == ")":
                 tokens.append(Token(TokenKind.RPAREN))
                 self.pos += 1
-            elif ch == "{":
-                tokens.append(Token(TokenKind.LBRACE))
-                self.pos += 1
-            elif ch == "}":
-                tokens.append(Token(TokenKind.RBRACE))
+            elif ch == "=":
+                tokens.append(Token(TokenKind.EQUAL))
                 self.pos += 1
             elif ch == ";":
                 tokens.append(Token(TokenKind.SEMICOLON))
                 self.pos += 1
-            elif ch == "=":
-                if self._peek_char(1) == "=":
-                    tokens.append(Token(TokenKind.EQEQ))
-                    self.pos += 2
-                else:
-                    tokens.append(Token(TokenKind.EQUAL))
-                    self.pos += 1
-            elif ch == "!":
-                if self._peek_char(1) == "=":
-                    tokens.append(Token(TokenKind.BANGEQ))
-                    self.pos += 2
-                else:
-                    raise SyntaxError("unexpected character: '!' (expected '!=')")
-            elif ch == "<":
-                if self._peek_char(1) == "=":
-                    tokens.append(Token(TokenKind.LTEQ))
-                    self.pos += 2
-                else:
-                    tokens.append(Token(TokenKind.LT))
-                    self.pos += 1
-            elif ch == ">":
-                if self._peek_char(1) == "=":
-                    tokens.append(Token(TokenKind.GTEQ))
-                    self.pos += 2
-                else:
-                    tokens.append(Token(TokenKind.GT))
-                    self.pos += 1
             else:
                 raise SyntaxError(f"unexpected character: {ch!r}")
         tokens.append(Token(TokenKind.EOF))
         return tokens
-
-    def _peek_char(self, offset: int) -> str | None:
-        p = self.pos + offset
-        if p < len(self.source):
-            return self.source[p]
-        return None
 
     def _number(self) -> Token:
         start = self.pos
