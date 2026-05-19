@@ -55,7 +55,31 @@ AST を構成する個々のノードの総称。minilang では `Num` `BinOp` `
 
 ## 環境（env / environment）
 
-変数名から値への対応表。Evaluator が `evaluate(node, env)` の形で持ち回し、`Assign` で書き込み、`Var` で読み出す。minilang では `dict[str, Any]` で実装。
+変数名から値への**対応表（辞書）**。Evaluator が `evaluate(node, env)` の形で持ち回し、`Assign` で書き込み、`Var` で読み出す。minilang では `dict[str, Any]` で実装。
+
+中身の例：
+
+```python
+env = {"x": 10, "y": 40}
+```
+
+### 何が入るか
+
+- 代入文 `x = 10;` が走ると `env["x"] = 10` が書き込まれる
+- 変数を参照する式（`x` 単体や `x + 1` の中の `x`）が出てくると `env["x"]` が読み出される
+
+### 何が入らないか（よくある誤解）
+
+env は**結果を入れる場所ではない**。`1 + 2` を評価した結果 `3` は関数の戻り値として返るだけで、env には入らない：
+
+```python
+result = evaluate(node, env)   # result = 計算結果（戻り値）
+                               # env    = 変数テーブル（別物）
+```
+
+env に入るのは「`x = 1 + 2;` のように**名前を付けて保存した値**」だけ。一時的な計算結果は env を経由せずに関数の戻り値として伝わる。
+
+### 登場時期
 
 step 2 で初めて登場。step 3 以降のスコープ管理でも中心的な役割を担う。
 
