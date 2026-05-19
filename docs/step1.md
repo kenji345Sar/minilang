@@ -188,6 +188,55 @@ def _term(self) -> Node:
 
 #### 使われている Python 構文
 
+**メソッド定義の読み方（`def ... -> Token:`）**
+
+```python
+def _peek(self, offset: int = 0) -> Token:
+```
+
+これは次のように読む：
+
+```
+def _peek(self, offset: int = 0) -> Token:
+ │   │     │      │      │   │     │
+ │   │     │      │      │   │     └ 戻り値の型：このメソッドは Token を返す
+ │   │     │      │      │   └ デフォルト値（指定しなければ 0）
+ │   │     │      │      └ offset の型注釈（int）
+ │   │     │      └ 第2引数の名前：offset
+ │   │     └ 第1引数：self（自分自身のインスタンス）
+ │   └ メソッド名：_peek
+ └ キーワード：これから関数/メソッドを定義する
+```
+
+- `_peek` は**これから定義しようとしているメソッドの名前**（クラスではない）
+- `Token` は**このメソッドが返す値の型**（呼ばれるオブジェクトではない）
+- 引数の `: int = 0` は「型は int、デフォルトは 0」
+
+別の例：
+
+```python
+def add(x: int, y: int) -> int:
+    return x + y
+
+result = add(2, 3)   # result = 5
+```
+
+**`from ... import ...` — 別ファイルの定義を持ってくる**
+
+[parser.py:1-2](../parser.py#L1-L2)：
+
+```python
+from tokens import Token, TokenKind
+from ast_nodes import Num, BinOp, Node
+```
+
+`from <ファイル名> import <名前>` は「別のファイルで定義してあるクラスや関数を、このファイル内で使えるようにする」という命令。
+
+- `from tokens import Token` → tokens.py で定義されている `Token` を、このファイル内で `Token` という名前で参照できるようにする
+- `Token` の実体は import 元のファイル（tokens.py）にある
+
+これにより、parser.py で `def _peek(...) -> Token:` と書ける（`Token` はファイル先頭で持ち込み済みのため）。「型がどこから来ているか」を追うときは、ファイル冒頭の import 文を見れば分かる。
+
 **`@dataclass` で自動生成されるコンストラクタ**
 
 ```python
