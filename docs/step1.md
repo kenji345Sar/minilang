@@ -102,6 +102,83 @@ factor = NUMBER | '(' expr ')'
 - **優先順位**は「呼ばれる深さ」で表現される（`_expr` が `_term` を呼び、`_term` が `_factor` を呼ぶ。`*` `/` の方が `+` `-` より**内側**で処理される＝**先に**評価される）
 - **左結合**（`1 - 2 - 3` が `(1 - 2) - 3` になる）は `while` ループで実現
 
+#### `_term` が `BinOp("*", 2, 3)` を作る瞬間
+
+`1 + 2 * 3` を読むとき、`2 * 3` の部分が木になる流れを `_term` の中で追う。
+
+```python
+def _term(self) -> Node:
+    node = self._factor()                                            # 行A
+    while self._peek().kind in (TokenKind.STAR, TokenKind.SLASH):
+        op = "*" if self._advance().kind == TokenKind.STAR else "/"  # 行B
+        node = BinOp(op, node, self._factor())                       # 行C
+    return node
+```
+
+| ステップ | 行 | 起きること | この時点の変数 |
+|---|---|---|---|
+| 1 | 行A | `_factor()` が `2` を読んで `Num(2)` を返す | `node = Num(2)` |
+| 2 | while条件 | 次のトークンは `*` → 条件成立、ループに入る | `node = Num(2)` |
+| 3 | 行B | `*` を消費して `op = "*"` | `op = "*"`, `node = Num(2)` |
+| 4 | 行C 評価中 | 右側の `self._factor()` が呼ばれて `3` を読み `Num(3)` を返す | （戻り値 = `Num(3)`） |
+| 5 | 行C 代入 | `BinOp("*", Num(2), Num(3))` を作って `node` を上書き | `node = BinOp("*", Num(2), Num(3))` |
+| 6 | while条件 | 次は EOF → ループ終了 | |
+| 7 | return | `node` を返す | 戻り値 = `BinOp("*", Num(2), Num(3))` |
+
+ポイントは**行C の `BinOp(op, node, self._factor())` という1行**：
+
+- 第1引数 `op` = `"*"`
+- 第2引数 `node` = `Num(2)`（直前の `_factor()` の結果を変数に取っておいたもの）
+- 第3引数 `self._factor()` = この場で呼んで `Num(3)` を取ってくる
+
+「左を変数で保持しておく／右はその場で取りに行く／3つまとめて BinOp にする」、これだけ。
+
+#### 使われている Python 構文
+
+**`@dataclass` で自動生成されるコンストラクタ**
+
+```python
+@dataclass
+class BinOp:
+    op: str
+    left: Node
+    right: Node
+
+# __init__ を自分で書かなくても以下が使える：
+node = BinOp("*", Num(2), Num(3))
+node.op       # "*"
+node.left     # Num(2)
+```
+
+**引数の中で関数を呼ぶ**
+
+```python
+BinOp(op, node, self._factor())
+```
+
+Python の評価規則：
+
+1. `op` の値を取る
+2. `node` の値を取る
+3. `self._factor()` を実行して戻り値を取る（ここで `Num(3)` が返る）
+4. 揃った3引数で `BinOp(...)` を呼んでインスタンスを作る
+
+引数は**左から順に評価され**、全部揃ってから外側の関数が呼ばれる。
+
+**`node = ...` の上書き（変数の使い回し）**
+
+```python
+node = self._factor()             # node = Num(2)
+node = BinOp("*", node, ...)      # node = BinOp("*", Num(2), ...)
+                                  # ↑ 元の Num(2) は新しい BinOp の left に取り込まれてから上書きされる
+```
+
+変数 `node` を使い回しているが、**直前の値を新しい BinOp の中に取り込んでから上書きする**ので情報は失われない。これが左結合（`1 - 2 - 3` を `(1 - 2) - 3` にする）の仕組みでもある。
+
+**`self` の意味**
+
+`self._factor()` の `self` は「今このメソッドが呼ばれているインスタンス自身」。`self` を書かないとローカル変数扱いになって `_factor` が見つけられない。Python のメソッドは必ず第1引数に `self` を取る決まり。
+
 ### Evaluator (`evaluator.py`)
 
 - `Num` なら `node.value` を返す
