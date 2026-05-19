@@ -105,7 +105,7 @@ Python には `eval("1+2*3")` という、文字列を渡せば `7` を返す機
 | Step 3 | 文の並び | `if` / `while` で分岐・反復 | 制御フローのノード |
 | Step 4 | 文の並び | 関数定義と呼び出し（クロージャ） | スコープ・第一級関数 |
 
-各ステップの実装詳細は `docs/stepN.md`。
+各ステップの実装詳細は `docs/stepN.md`。用語（REPL、AST、env など）の定義は [docs/glossary.md](docs/glossary.md)。
 
 ## 動かす
 
@@ -141,9 +141,10 @@ cat snapshots/step1/evaluator.py  # step 1 の評価器
 ```
 minilang/
 ├── README.md          このファイル（全体の枠組みと考え方）
-├── docs/              各ステップの実装手順と差分
+├── docs/              各ステップの実装手順と差分、用語集
 │   ├── step1.md
-│   └── step2.md
+│   ├── step2.md
+│   └── glossary.md
 ├── main.py            REPL エントリ（現在のステップ）
 ├── tokens.py          Token / TokenKind 定義
 ├── lexer.py           文字列 → トークン列
