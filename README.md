@@ -43,6 +43,42 @@
 
 （`(1+2)*3` のように括弧で順番を変えると、Parser が組み立てる木の形が変わる。Evaluator のコードは1行も変えなくていい。）
 
+### コードでどう実現しているか — `_expr` と `_term` のネスト
+
+Parser の中身は `_expr`（`+` `-` を扱う）と `_term`（`*` `/` を扱う）という2つの関数に分かれている。**`_expr` は左右のオペランドを取るときに `_term` を呼ぶ**、というネスト構造が優先順位を作っている。
+
+`1 + 2 * 3` を読むときの流れ：
+
+| ステップ | 動き |
+|---|---|
+| 1 | `_expr` が呼ばれる。まず**左**を取るため `_term` を呼ぶ |
+| 2 | `_term` は `1` を読む。次のトークンは `+` で `*` `/` ではないので、`Num(1)` だけ返す |
+| 3 | `_expr` は `+` を消費し、**右**を取るためまた `_term` を呼ぶ |
+| 4 | `_term` は `2` を読む。次が `*` なので吸い込み、`3` まで読んで `BinOp("*", 2, 3)` を作って返す |
+| 5 | `_expr` が `BinOp("+", 1, BinOp("*", 2, 3))` を組み立てて完成 |
+
+**鍵は `_term` の `while` ループが `STAR` と `SLASH` だけを条件にしている**こと（[parser.py:74](parser.py#L74)）。`_term` は `*` `/` を吸い込んでから返してくる。だから `*` を含む部分は必ず `+` の**オペランドの中身**として木の内側に入る。もし `_term` が `+` も吸ったら優先順位が壊れる。
+
+```python
+def _expr(self) -> Node:
+    node = self._term()              # 左：_term が * を吸ってから返す
+    while self._peek().kind in (TokenKind.PLUS, TokenKind.MINUS):
+        op = "+" if ... else "-"
+        node = BinOp(op, node, self._term())  # 右：また _term を呼ぶ
+    return node
+
+def _term(self) -> Node:
+    node = self._factor()
+    while self._peek().kind in (TokenKind.STAR, TokenKind.SLASH):  # ★ ここ
+        op = "*" if ... else "/"
+        node = BinOp(op, node, self._factor())
+    return node
+```
+
+「呼び出すと結果が深くなる」ことで、**呼び出し関係の深さ＝木の深さ＝計算の先後**が一致する仕組みになっている。
+
+該当：[parser.py:65-77](parser.py#L65-L77)
+
 ## なぜ自分で書くのか — Python の `eval()` でいいのでは？
 
 Python には `eval("1+2*3")` という、文字列を渡せば `7` を返す機能が組み込まれている。だから**電卓の答えを得るだけ**なら自分で書く必要はない。
