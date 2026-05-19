@@ -44,10 +44,23 @@ REPL が起動し、式または文を入力すると評価される。
 |---|---|
 | `tokens.py` | Token / TokenKind 定義 |
 | `lexer.py` | 文字列 → トークン列 |
-| `ast_nodes.py` | AST ノード（Num / BinOp） |
+| `ast_nodes.py` | AST ノード |
 | `parser.py` | トークン列 → AST |
 | `evaluator.py` | AST → 値 |
 | `main.py` | REPL エントリ |
+
+トップレベルの .py は常に**今のステップ**（現在地）のコード。過去ステップのコードは `snapshots/stepN/` に置く。
+
+## 過去ステップのコードを読む
+
+```
+cat snapshots/step1/main.py       # step 1 の REPL
+cat snapshots/step1/evaluator.py  # step 1 の評価器
+```
+
+`git checkout` は不要。トップレベルと `snapshots/` を並べて見られる。
+
+新しいステップに進むときは、その直前に「今のトップレベル」を `snapshots/stepN/` にコピーしてからトップレベルを書き換える。
 
 ## 学習用：途中段階を覗く
 
