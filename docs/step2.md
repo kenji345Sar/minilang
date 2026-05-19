@@ -180,30 +180,271 @@ print(y);      ← 文3
 
 ## Parser の変更
 
-`parser.py`：
+### なぜトップレベルが「文の並び」になるか
 
-- トップレベルを「文の並び」に変更：`parse()` は `Program(statements)` を返す
-- 文の文法：
-  - `IDENT '=' expr ';'` → `Assign(name, expr)`
-  - `'print' '(' expr ')' ';'` → `Print(expr)`
-  - `expr ';'` → 式文（評価して結果を捨てる。REPL 互換のために用意）
-- `_factor` に `IDENT` を追加：`Var(name)` を返す
-- 末尾の `;` は省略可能にする（最後の文だけ）
+step 1 では `parse()` が単一の式ノードを返していた。step 2 では入力に複数の文が並ぶので、`parse()` は全体を `Program(statements)` という1つのノードに包んで返す。Evaluator はその `statements` を順に処理するだけ。
+
+### 文の振り分けロジック（`_statement`）
+
+```python
+def _statement(self) -> Node:
+    t = self._peek()
+    if t.kind == TokenKind.PRINT:
+        return self._print_stmt()
+    if t.kind == TokenKind.IDENT and self._peek(1).kind == TokenKind.EQUAL:
+        return self._assign_stmt()
+    return self._expr_stmt()
+```
+
+各文の入り口を**最初の1〜2トークンで見分ける**：
+
+- 先頭が `print` → `Print` 文
+- 先頭が `IDENT` で、次が `=` → `Assign` 文
+- それ以外 → 式文（`1 + 2;` のような行）
+
+### なぜ `_peek(1)` の lookahead が必要か
+
+`x` という識別子を見ても、それだけでは「変数参照（式の一部）」なのか「代入の左辺」なのか決まらない：
+
+- `x;` → 式文（`Var("x")` を評価して捨てる）
+- `x = 1;` → 代入文
+
+**次のトークンが `=` かどうか**で判別する必要がある。これを実現するのが `_peek(1)`（**1個先のトークンを覗き見る**）。`_peek(offset=0)` がデフォルトで現在位置、`_peek(1)` で1個先を見る。
+
+カーソルは進めずに見るだけなので、判別後にどちらの分岐に行っても token 列を読み直す必要がない。
+
+### `_factor` に `IDENT` 分岐を追加
+
+step 1 の `_factor` は数値と括弧式しか扱えなかった。step 2 では「変数参照」も式の一部として現れるので分岐を追加：
+
+```python
+def _factor(self) -> Node:
+    t = self._peek()
+    if t.kind == TokenKind.NUMBER:
+        self._advance()
+        return Num(int(t.value))
+    if t.kind == TokenKind.IDENT:        # ← step 2 で追加
+        self._advance()
+        return Var(t.value)
+    if t.kind == TokenKind.LPAREN:
+        ...
+```
+
+これだけで `x + 1` のような「変数を含む式」を Parser が認識できるようになる。AST 上は `BinOp("+", Var("x"), Num(1))` が出来る。
+
+### `x = 1 + 2;` を `Assign` 木にするトレース
+
+入力：`x = 1 + 2;`
+
+Lexer の出力（トークン列）：
+
+```
+[IDENT("x"), EQUAL, NUMBER("1"), PLUS, NUMBER("2"), SEMICOLON, EOF]
+```
+
+| ステップ | 動き | 結果 |
+|---|---|---|
+| 1 | `parse()` → `_statement()` を呼ぶ | |
+| 2 | `_statement` が `_peek()`：`IDENT("x")`。`_peek(1)`：`EQUAL`。代入と判定 | `_assign_stmt()` へ |
+| 3 | `_assign_stmt`：`_advance()` で `IDENT("x")` を消費し、`name = "x"` | `name = "x"` |
+| 4 | `_expect(EQUAL)` で `=` を消費 | |
+| 5 | `_expr()` を呼んで `1 + 2` を読み、`BinOp("+", Num(1), Num(2))` を作る | `expr = BinOp(...)` |
+| 6 | `_consume_optional_semicolon()` で `;` を消費 | |
+| 7 | `Assign("x", BinOp("+", Num(1), Num(2)))` を返す | |
+| 8 | `parse()` が次のトークン EOF を見てループ終了 | |
+| 9 | `Program([Assign(...)])` を返す | 最終 AST |
+
+最終的に出来上がる木：
+
+```
+Program
+└── Assign("x")
+    └── BinOp("+")
+        ├── Num(1)
+        └── Num(2)
+```
+
+ポイント：`_assign_stmt` は最初に名前を取り、`=` を消費した後は **step 1 と同じ `_expr` を呼んでいるだけ**。式パースのロジックを使い回している。
+
+### 末尾 `;` の省略許可
+
+文の末尾の `;` は `_consume_optional_semicolon()` で「あれば消費、なくてもよい」扱いにしてある：
+
+```python
+def _consume_optional_semicolon(self) -> None:
+    if self._peek().kind == TokenKind.SEMICOLON:
+        self._advance()
+```
+
+これにより REPL で `1 + 2`（`;` なし）と入力しても式文としてパースできる。step 1 互換のための配慮。
 
 ## Evaluator の変更
 
-`evaluator.py`：
+### なぜ `env` を引数で回す設計か
 
-- `evaluate(node, env)` の形に変更。`env` は `dict[str, Any]`
-- `Program`：各文を順に `evaluate(stmt, env)`。最後の文の値を返す（REPL 表示用）
-- `Assign`：`env[name] = evaluate(expr, env)`、戻り値は `None`
-- `Print`：`print(evaluate(expr, env))`、戻り値は `None`
-- `Var`：`env[name]`（未定義なら `NameError`）
+step 1 の `evaluate(node)` は引数1つだった（状態を持たないから）。step 2 では変数の値を覚えておく場所が必要：
+
+```python
+def evaluate(node, env: dict[str, Any]):
+    ...
+```
+
+`env` を**毎回引数として渡す**設計の利点：
+
+- グローバル変数を使わないので、Evaluator が純粋関数に近くなる
+- 同じ AST を**別の env で評価**できる（テスト時に空の env を渡せる）
+- step 4 でスコープ（関数呼び出しごとに新しい env を作る）を導入するときに、自然に拡張できる
+
+### `isinstance` による振り分け
+
+step 1 では2種類のノード（`Num`、`BinOp`）を `isinstance` で振り分けていた。step 2 で扱うノード型は増える：
+
+```python
+def evaluate(node, env):
+    if isinstance(node, Program):
+        result = None
+        for stmt in node.statements:
+            result = evaluate(stmt, env)
+        return result
+    if isinstance(node, Assign):
+        env[node.name] = evaluate(node.expr, env)
+        return None
+    if isinstance(node, Print):
+        print(evaluate(node.expr, env))
+        return None
+    if isinstance(node, ExprStmt):
+        return evaluate(node.expr, env)
+    if isinstance(node, Var):
+        if node.name not in env:
+            raise NameError(f"undefined variable: {node.name}")
+        return env[node.name]
+    if isinstance(node, Num):
+        return node.value
+    if isinstance(node, BinOp):
+        ...
+```
+
+ノード型ごとに「どう処理するか」を直接書ける。AST に新しいノードを足すたびに `isinstance` 分岐を1つ追加すれば対応できる、というのが3段構成のスケーラビリティの源。
+
+### 代入と print のトレース
+
+入力：`x = 10; print(x);`
+
+Parser が作る AST：
+
+```
+Program([
+    Assign("x", Num(10)),
+    Print(Var("x")),
+])
+```
+
+評価のトレース（`env = {}` から開始）：
+
+| ステップ | ノード | 動き | env / 出力 |
+|---|---|---|---|
+| 1 | `Program` | 文を順に評価していく | |
+| 2 | `Assign("x", Num(10))` | 右辺 `Num(10)` を評価 → `10` | |
+| 3 | | `env["x"] = 10` | `env = {"x": 10}` |
+| 4 | `Print(Var("x"))` | `Var("x")` を評価 → `env["x"]` → `10` | |
+| 5 | | `print(10)` を実行 | 標準出力: `10` |
+
+「文ごとに env を書き換える／読み出す」という流れがわかれば step 2 の Evaluator は理解できたと言える。
+
+### REPL 表示用の戻り値
+
+`Program` を評価するとき、**最後の文の値**を返している：
+
+```python
+if isinstance(node, Program):
+    result = None
+    for stmt in node.statements:
+        result = evaluate(stmt, env)
+    return result
+```
+
+これは `main.py` 側で **「単一の式文なら結果を表示する」** という REPL 互換のため。`1 + 2`（式文）と入力したら `3` を返し、`x = 1;`（代入文）は `None` を返す、という挙動を支える戻り値設計。
 
 ## main.py の変更
 
-- 環境 `env: dict[str, Any] = {}` を REPL ループの外側で1つ作り、入力ごとに使い回す
-- 入力が単一の式（`;` なし）でも動くように、parser 側で末尾 `;` 省略を許可する設計にしておく
+### env の生存期間が変わる
+
+step 1 の `run()` は毎回 `evaluate(tree)` を呼んで終わり。状態を持たない。
+
+step 2 では「変数の値を REPL のセッション中ずっと覚えておく」必要があるので、`env` を **REPL ループの外側**で1つ作り、毎回の `evaluate(program, env)` に渡し回す：
+
+```python
+def main():
+    env: dict[str, Any] = {}      # ← ループ外で1つ作る
+    while True:
+        line = input("> ")
+        ...
+        run(line, env)            # ← 同じ env を毎回渡す
+```
+
+これで `x = 10;` と入力した後に `print(x);` と入力しても `x` が見える。`env` は REPL を終了するまで生き続ける。
+
+### `exit` / `quit` のメタコマンド
+
+`exit` を `Var("exit")` として評価しようとすると未定義変数エラーになる。これは Lexer/Parser/Evaluator のルールどおりの正しい挙動だが、REPL の使い勝手としては不便。
+
+そこで main.py 側で**評価前に**特別扱いする：
+
+```python
+stripped = line.strip().rstrip(";").strip()
+if stripped in ("exit", "quit"):
+    break
+```
+
+minilang 本体（Lexer/Parser/Evaluator）には手を入れずに、REPL のメタコマンドとして処理。Python の対話モードと同じ発想。
+
+## 使われている Python 構文（step 2 追加分）
+
+step 1 で説明した構文（`def ... -> Token:`、`from ... import ...`、`@dataclass`、引数評価順、`self`）に加えて、step 2 で新しく出てくる構文。
+
+### `dict[str, Any]` — 辞書の型注釈
+
+```python
+env: dict[str, Any] = {}
+```
+
+`dict[str, Any]` は「**キーが文字列で、値は何でも良い辞書**」という型注釈。Python 3.9 以降ではこの形で書ける（古い書き方は `Dict[str, Any]` で `from typing import Dict` が必要だった）。
+
+- `str`：キーの型
+- `Any`：値の型。`from typing import Any` で持ってくる「何でもアリ」を意味する型
+
+minilang の `env` は変数名（文字列）と任意の値（整数、`None` など）を結びつけるので `dict[str, Any]` がぴったり。
+
+### `Union[...]` — 複数の型のどれか1つ
+
+```python
+Node = Union[
+    "Num", "BinOp", "Var",
+    "Assign", "Print", "ExprStmt",
+    "Program",
+]
+```
+
+`Union[A, B, C]` は「A か B か C のいずれか」という型。`ast_nodes.py` の `Node` は**いずれかの AST ノード型**を指す型エイリアスとして定義してある。
+
+文字列リテラル（`"Num"` のように引用符で囲んだ）になっているのは、**まだ定義していないクラスを前方参照する**ため。`Union` を書いた時点で `Num` クラスはまだ定義されていないので、文字列として書いて後で解決させるという Python の文法。
+
+Python 3.10 以降は `|` で同じことが書ける：
+
+```python
+Node = "Num" | "BinOp" | "Var" | ...
+```
+
+### `isinstance(...)` — 型の判定
+
+```python
+if isinstance(node, BinOp):
+    ...
+```
+
+`isinstance(値, 型)` は「**値がその型のインスタンスかどうか**」を判定する組み込み関数。Evaluator が AST ノードの種類を見分けるために使う。
+
+minilang では AST のノード型ごとに動きを変える設計なので、`isinstance` 分岐の連続で評価関数が組み立てられる。これは Python における**型に応じた振り分け**（簡易版 pattern matching）の典型パターン。
 
 ## 完了の判定
 
