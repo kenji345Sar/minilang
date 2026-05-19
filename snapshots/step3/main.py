@@ -1,10 +1,11 @@
+from typing import Any
 from lexer import Lexer
 from parser import Parser
-from evaluator import evaluate, Env
+from evaluator import evaluate
 from ast_nodes import ExprStmt
 
 
-def run(source: str, env: Env):
+def run(source: str, env: dict[str, Any]):
     tokens = Lexer(source).tokenize()
     program = Parser(tokens).parse()
     result = evaluate(program, env)
@@ -18,9 +19,9 @@ def run(source: str, env: Env):
 
 
 def main():
-    print("minilang step 4: functions and closures")
+    print("minilang step 3: if / while")
     print("type 'exit' or 'quit' to leave (Ctrl+C / Ctrl+D も可)")
-    env = Env()
+    env: dict[str, Any] = {}
     while True:
         try:
             line = input("> ")

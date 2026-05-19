@@ -6,8 +6,6 @@ KEYWORDS = {
     "if": TokenKind.IF,
     "else": TokenKind.ELSE,
     "while": TokenKind.WHILE,
-    "def": TokenKind.DEF,
-    "return": TokenKind.RETURN,
 }
 
 
@@ -52,9 +50,6 @@ class Lexer:
                 self.pos += 1
             elif ch == ";":
                 tokens.append(Token(TokenKind.SEMICOLON))
-                self.pos += 1
-            elif ch == ",":
-                tokens.append(Token(TokenKind.COMMA))
                 self.pos += 1
             elif ch == "=":
                 if self._peek_char(1) == "=":

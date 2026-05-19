@@ -4,7 +4,6 @@ from ast_nodes import (
     Assign, Print, ExprStmt,
     Program, Node,
     If, While, Block,
-    FunctionDef, Call, Return,
 )
 
 
@@ -44,10 +43,6 @@ class Parser:
 
     def _statement(self) -> Node:
         t = self._peek()
-        if t.kind == TokenKind.DEF:
-            return self._def_stmt()
-        if t.kind == TokenKind.RETURN:
-            return self._return_stmt()
         if t.kind == TokenKind.IF:
             return self._if_stmt()
         if t.kind == TokenKind.WHILE:
@@ -57,28 +52,6 @@ class Parser:
         if t.kind == TokenKind.IDENT and self._peek(1).kind == TokenKind.EQUAL:
             return self._assign_stmt()
         return self._expr_stmt()
-
-    def _def_stmt(self) -> FunctionDef:
-        self._advance()
-        name = self._expect(TokenKind.IDENT).value
-        self._expect(TokenKind.LPAREN)
-        params: list[str] = []
-        if self._peek().kind != TokenKind.RPAREN:
-            params.append(self._expect(TokenKind.IDENT).value)
-            while self._peek().kind == TokenKind.COMMA:
-                self._advance()
-                params.append(self._expect(TokenKind.IDENT).value)
-        self._expect(TokenKind.RPAREN)
-        body = self._block()
-        return FunctionDef(name, params, body)
-
-    def _return_stmt(self) -> Return:
-        self._advance()
-        expr = None
-        if self._peek().kind != TokenKind.SEMICOLON and self._peek().kind != TokenKind.RBRACE:
-            expr = self._expr()
-        self._consume_optional_semicolon()
-        return Return(expr)
 
     def _if_stmt(self) -> If:
         self._advance()
@@ -154,12 +127,6 @@ class Parser:
         return node
 
     def _factor(self) -> Node:
-        node = self._primary()
-        while self._peek().kind == TokenKind.LPAREN:
-            node = self._finish_call(node)
-        return node
-
-    def _primary(self) -> Node:
         t = self._peek()
         if t.kind == TokenKind.NUMBER:
             self._advance()
@@ -173,14 +140,3 @@ class Parser:
             self._expect(TokenKind.RPAREN)
             return node
         raise SyntaxError(f"unexpected token: {t}")
-
-    def _finish_call(self, callee: Node) -> Call:
-        self._expect(TokenKind.LPAREN)
-        args: list[Node] = []
-        if self._peek().kind != TokenKind.RPAREN:
-            args.append(self._expr())
-            while self._peek().kind == TokenKind.COMMA:
-                self._advance()
-                args.append(self._expr())
-        self._expect(TokenKind.RPAREN)
-        return Call(callee, args)

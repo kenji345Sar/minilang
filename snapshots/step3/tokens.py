@@ -14,6 +14,7 @@ class TokenKind(Enum):
     EQUAL = auto()
     SEMICOLON = auto()
     PRINT = auto()
+    # step 3
     IF = auto()
     ELSE = auto()
     WHILE = auto()
@@ -25,10 +26,6 @@ class TokenKind(Enum):
     GT = auto()
     LTEQ = auto()
     GTEQ = auto()
-    # step 4
-    DEF = auto()
-    RETURN = auto()
-    COMMA = auto()
     EOF = auto()
 
 

@@ -7,7 +7,6 @@ Node = Union[
     "Assign", "Print", "ExprStmt",
     "Program",
     "If", "While", "Block",
-    "FunctionDef", "Call", "Return",
 ]
 
 
@@ -65,21 +64,3 @@ class While:
 @dataclass
 class Block:
     statements: list[Node]
-
-
-@dataclass
-class FunctionDef:
-    name: str
-    params: list[str]
-    body: Node
-
-
-@dataclass
-class Call:
-    callee: Node
-    args: list[Node]
-
-
-@dataclass
-class Return:
-    expr: Optional[Node]

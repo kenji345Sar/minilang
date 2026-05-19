@@ -1,53 +1,13 @@
-from typing import Any, Optional
+from typing import Any
 from ast_nodes import (
     Num, BinOp, Var,
     Assign, Print, ExprStmt,
     Program, Node,
     If, While, Block,
-    FunctionDef, Call, Return,
 )
 
 
-class Env:
-    def __init__(self, parent: Optional["Env"] = None):
-        self.vars: dict[str, Any] = {}
-        self.parent = parent
-
-    def __getitem__(self, name: str) -> Any:
-        if name in self.vars:
-            return self.vars[name]
-        if self.parent is not None:
-            return self.parent[name]
-        raise KeyError(name)
-
-    def __setitem__(self, name: str, value: Any) -> None:
-        self.vars[name] = value
-
-    def __contains__(self, name: str) -> bool:
-        if name in self.vars:
-            return True
-        if self.parent is not None:
-            return name in self.parent
-        return False
-
-
-class Function:
-    def __init__(self, name: str, params: list[str], body: Node, env: Env):
-        self.name = name
-        self.params = params
-        self.body = body
-        self.env = env
-
-    def __repr__(self) -> str:
-        return f"<function {self.name}>"
-
-
-class ReturnValue(Exception):
-    def __init__(self, value: Any):
-        self.value = value
-
-
-def evaluate(node: Node, env: Env):
+def evaluate(node: Node, env: dict[str, Any]):
     if isinstance(node, Program):
         result = None
         for stmt in node.statements:
@@ -68,31 +28,6 @@ def evaluate(node: Node, env: Env):
         while evaluate(node.cond, env):
             evaluate(node.body, env)
         return None
-    if isinstance(node, FunctionDef):
-        env[node.name] = Function(node.name, node.params, node.body, env)
-        return None
-    if isinstance(node, Call):
-        callee = evaluate(node.callee, env)
-        args = [evaluate(a, env) for a in node.args]
-        if not isinstance(callee, Function):
-            raise TypeError(f"not callable: {callee}")
-        if len(args) != len(callee.params):
-            raise TypeError(
-                f"{callee.name}: expected {len(callee.params)} args, got {len(args)}"
-            )
-        new_env = Env(parent=callee.env)
-        for p, a in zip(callee.params, args):
-            new_env[p] = a
-        try:
-            evaluate(callee.body, new_env)
-        except ReturnValue as r:
-            return r.value
-        return None
-    if isinstance(node, Return):
-        value = None
-        if node.expr is not None:
-            value = evaluate(node.expr, env)
-        raise ReturnValue(value)
     if isinstance(node, Assign):
         env[node.name] = evaluate(node.expr, env)
         return None
