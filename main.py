@@ -20,13 +20,16 @@ def run(source: str, env: dict[str, Any]):
 
 def main():
     print("minilang step 2: variables and print")
-    print("Ctrl+C or Ctrl+D to exit")
+    print("type 'exit' or 'quit' to leave (Ctrl+C / Ctrl+D も可)")
     env: dict[str, Any] = {}
     while True:
         try:
             line = input("> ")
         except (EOFError, KeyboardInterrupt):
             print()
+            break
+        stripped = line.strip().rstrip(";").strip()
+        if stripped in ("exit", "quit"):
             break
         if not line.strip():
             continue
