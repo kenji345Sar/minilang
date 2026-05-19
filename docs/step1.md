@@ -102,6 +102,59 @@ factor = NUMBER | '(' expr ')'
 - **優先順位**は「呼ばれる深さ」で表現される（`_expr` が `_term` を呼び、`_term` が `_factor` を呼ぶ。`*` `/` の方が `+` `-` より**内側**で処理される＝**先に**評価される）
 - **左結合**（`1 - 2 - 3` が `(1 - 2) - 3` になる）は `while` ループで実現
 
+#### Parser のヘルパーメソッド
+
+トレースに入る前に、Parser クラスが持つ補助メソッドを把握しておく。
+
+**`self._peek()` — 次のトークンを覗き見する**
+
+```python
+def _peek(self, offset: int = 0) -> Token:
+    return self.tokens[self.pos + offset]
+```
+
+カーソル位置 (`self.pos`) にあるトークンを**消費せずに**返す。「次に何が来るか」だけ確認したいときに使う。
+
+たとえば `self._peek().kind in (TokenKind.STAR, TokenKind.SLASH)` は「次のトークンが `*` か `/` か？」を判定するだけで、カーソルは動かない。
+
+**`self._advance()` — 次のトークンを消費する**
+
+```python
+def _advance(self) -> Token:
+    t = self.tokens[self.pos]
+    self.pos += 1
+    return t
+```
+
+カーソル位置のトークンを返して、**カーソルを1つ進める**。
+
+- `_peek()` = **見るだけ**（カーソル動かない）
+- `_advance()` = **読み取って次へ**（カーソル進む）
+
+判定のときは `_peek`、確定したら `_advance`、というペアで使う。
+
+**`self._factor()` — 1つの「項」を読み取る**
+
+```python
+def _factor(self) -> Node:
+    t = self._peek()
+    if t.kind == TokenKind.NUMBER:
+        self._advance()
+        return Num(int(t.value))
+    if t.kind == TokenKind.LPAREN:
+        self._advance()
+        node = self._expr()
+        ...
+```
+
+数値1個（`Num`）か、括弧で囲まれた式（`(...)`）を1つ読んで AST ノードを返す。文法の一番内側＝**もうこれ以上分解できない単位**を扱う層。
+
+たとえば「`_factor()` が `2` を読んで `Num(2)` を返す」というのは内部的にこう動いている：
+
+1. `_peek()` で次のトークンを見る → `NUMBER("2")`
+2. `_advance()` でそのトークンを消費（カーソルが進む）
+3. `Num(2)` という AST ノードを作って返す
+
 #### `_term` が `BinOp("*", 2, 3)` を作る瞬間
 
 `1 + 2 * 3` を読むとき、`2 * 3` の部分が木になる流れを `_term` の中で追う。
