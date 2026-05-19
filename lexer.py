@@ -1,6 +1,9 @@
 from tokens import Token, TokenKind
 
 
+KEYWORDS = {"print": TokenKind.PRINT}
+
+
 class Lexer:
     def __init__(self, source: str):
         self.source = source
@@ -14,6 +17,8 @@ class Lexer:
                 self.pos += 1
             elif ch.isdigit():
                 tokens.append(self._number())
+            elif ch.isalpha() or ch == "_":
+                tokens.append(self._ident_or_keyword())
             elif ch == "+":
                 tokens.append(Token(TokenKind.PLUS))
                 self.pos += 1
@@ -32,6 +37,12 @@ class Lexer:
             elif ch == ")":
                 tokens.append(Token(TokenKind.RPAREN))
                 self.pos += 1
+            elif ch == "=":
+                tokens.append(Token(TokenKind.EQUAL))
+                self.pos += 1
+            elif ch == ";":
+                tokens.append(Token(TokenKind.SEMICOLON))
+                self.pos += 1
             else:
                 raise SyntaxError(f"unexpected character: {ch!r}")
         tokens.append(Token(TokenKind.EOF))
@@ -42,3 +53,14 @@ class Lexer:
         while self.pos < len(self.source) and self.source[self.pos].isdigit():
             self.pos += 1
         return Token(TokenKind.NUMBER, self.source[start:self.pos])
+
+    def _ident_or_keyword(self) -> Token:
+        start = self.pos
+        while self.pos < len(self.source) and (
+            self.source[self.pos].isalnum() or self.source[self.pos] == "_"
+        ):
+            self.pos += 1
+        word = self.source[start:self.pos]
+        if word in KEYWORDS:
+            return Token(KEYWORDS[word], word)
+        return Token(TokenKind.IDENT, word)

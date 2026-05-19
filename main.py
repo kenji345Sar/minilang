@@ -1,17 +1,27 @@
+from typing import Any
 from lexer import Lexer
 from parser import Parser
 from evaluator import evaluate
+from ast_nodes import ExprStmt
 
 
-def run(source: str):
+def run(source: str, env: dict[str, Any]):
     tokens = Lexer(source).tokenize()
-    tree = Parser(tokens).parse()
-    return evaluate(tree)
+    program = Parser(tokens).parse()
+    result = evaluate(program, env)
+    # REPL 表示：単一の式文（print なし）なら値を出す
+    if (
+        len(program.statements) == 1
+        and isinstance(program.statements[0], ExprStmt)
+        and result is not None
+    ):
+        print(result)
 
 
 def main():
-    print("minilang step 1: calculator")
+    print("minilang step 2: variables and print")
     print("Ctrl+C or Ctrl+D to exit")
+    env: dict[str, Any] = {}
     while True:
         try:
             line = input("> ")
@@ -21,7 +31,7 @@ def main():
         if not line.strip():
             continue
         try:
-            print(run(line))
+            run(line, env)
         except Exception as e:
             print(f"error: {e}")
 

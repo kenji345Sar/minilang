@@ -4,12 +4,16 @@ from enum import Enum, auto
 
 class TokenKind(Enum):
     NUMBER = auto()
+    IDENT = auto()
     PLUS = auto()
     MINUS = auto()
     STAR = auto()
     SLASH = auto()
     LPAREN = auto()
     RPAREN = auto()
+    EQUAL = auto()
+    SEMICOLON = auto()
+    PRINT = auto()
     EOF = auto()
 
 
