@@ -20,281 +20,58 @@
 8.0
 ```
 
-## 実装：3段の中身
+## 全体像：3段の役割とデータの流れ
 
-### トークン (`tokens.py`)
+実装に入る前に、コードがどう分かれていて、データがどう流れるかを把握しておく。
 
-- `NUMBER`：整数
-- `PLUS` `MINUS` `STAR` `SLASH`：`+` `-` `*` `/`
-- `LPAREN` `RPAREN`：`(` `)`
-- `EOF`：終端マーカー
+### ファイルの役割
 
-`Token` は `kind` と `value` を持つ `dataclass`。
+| ファイル | 役割 |
+|---|---|
+| tokens.py | `Token` クラスと `TokenKind` enum の**定義** |
+| lexer.py | **Lexer**：文字列をトークン列に変換する |
+| ast_nodes.py | AST ノード型（`Num` / `BinOp`）の**定義** |
+| parser.py | **Parser**：トークン列を構文木に変換する |
+| evaluator.py | **Evaluator**：構文木を評価して値にする |
+| main.py | REPL ループ（3段を順に呼び出す） |
 
-### Lexer (`lexer.py`)
+3つの「動詞」ファイル（Lexer / Parser / Evaluator）と、2つの「データ型を定義する」ファイル（tokens / ast_nodes）に分かれている。
 
-#### なぜトークンに分けるのか
+### 3段の入出力
 
-生の文字列 `"1 + 2 * 3"` には、Parser にとって本質ではない問題が混ざっている：
+| 段 | 入力 | 出力 |
+|---|---|---|
+| Lexer | 文字列 `"1+2"` | トークン列 |
+| Parser | トークン列 | 構文木（AST） |
+| Evaluator | 構文木 | 値 `3` |
 
-- 空白を飛ばす
-- `12` のような複数桁を「1個の数」として読み取る
-- 文字（`+`）と数字（`2`）と単語（`print`）が混在している
+各段で扱うデータ型が**全部違う**ことに注目（文字列 → トークン列 → 木 → 整数）。
 
-これらを Lexer が片付けて `[1, +, 2, *, 3]` のような**意味のある単位の列**に整える。Parser は「次のトークンは何か」だけ見ればよくなり、**文字レベルの処理から解放される**。
-
-役割分担：
-
-- **Lexer = 文字の世界**：空白、数字のまとまり、キーワード判別
-- **Parser = トークンの世界**：文法、優先順位、構造
-
-#### 実装
-
-- 入力文字列を1文字ずつ進めるカーソル方式
-- 数字が続いたら `NUMBER` トークン（連続する桁を1つにまとめる）、空白は飛ばす、1文字記号はそのまま対応するトークンに
-- 最後に必ず `EOF` を1つ付ける
-- 未知の文字は `SyntaxError`
-
-### AST ノード (`ast_nodes.py`)
-
-- `Num(value)`：数値リテラル
-- `BinOp(op, left, right)`：二項演算（`op` は `'+' '-' '*' '/'`）
-
-### Parser (`parser.py`) — 再帰下降
-
-#### なぜ構文木にするのか
-
-トークン列 `[1, +, 2, *, 3]` は**平坦**で、どこからどこまでが一塊か分からない。`*` が `+` より先、というルールがこの並びだけからは読み取れない。
-
-そこで構造を木にする：
+### `"1 + 2 * 3"` を3段に通すと
 
 ```
-       BinOp(+)
-       /     \
-      1     BinOp(*)
-             /    \
-            2      3
+"1 + 2 * 3"                                              ← 入力（文字列）
+   ↓ Lexer
+[NUMBER(1), PLUS, NUMBER(2), STAR, NUMBER(3), EOF]       ← トークン列
+   ↓ Parser
+BinOp("+", Num(1), BinOp("*", Num(2), Num(3)))           ← 構文木
+   ↓ Evaluator
+7                                                         ← 値
 ```
 
-この木があれば、Evaluator は**葉から順に評価する**だけで自動的に正しい順番（`2*3` を先、その結果と `1` を後）で計算できる。**優先順位の判断は Parser が一度だけ行い、結果が木の形に焼き付けられる**。
-
-`(1+2)*3` だと木の形が変わる：
-
-```
-       BinOp(*)
-       /     \
-   BinOp(+)   3
-    /   \
-   1     2
-```
-
-形が違うだけで、Evaluator のコードは1行も変えなくていい。
-
-#### 実装：文法を関数に1対1対応させる
-
-```
-expr   = term   (('+' | '-') term)*
-term   = factor (('*' | '/') factor)*
-factor = NUMBER | '(' expr ')'
-```
-
-- `_expr` / `_term` / `_factor` の3関数
-- **優先順位**は「呼ばれる深さ」で表現される（`_expr` が `_term` を呼び、`_term` が `_factor` を呼ぶ。`*` `/` の方が `+` `-` より**内側**で処理される＝**先に**評価される）
-- **左結合**（`1 - 2 - 3` が `(1 - 2) - 3` になる）は `while` ループで実現
-
-#### Parser のヘルパーメソッド
-
-トレースに入る前に、Parser クラスが持つ補助メソッドを把握しておく。
-
-**`self._peek()` — 次のトークンを覗き見する**
+入力が**3段で姿を変えながら**進む。`main.py` はこの3段を順に呼ぶだけ：
 
 ```python
-def _peek(self, offset: int = 0) -> Token:
-    return self.tokens[self.pos + offset]
+tokens = Lexer(source).tokenize()    # 文字列 → トークン列
+program = Parser(tokens).parse()     # トークン列 → 構文木
+result = evaluate(program, env)      # 構文木 → 値
 ```
 
-カーソル位置 (`self.pos`) にあるトークンを**消費せずに**返す。「次に何が来るか」だけ確認したいときに使う。
+ここから先は、それぞれの段の中身を詳しく見ていく。ただしコードを読むには Python の基本ルール（`def` の意味、`@dataclass` とは何か、など）を知っておく必要があるので、まず次のセクションでそこを押さえる。
 
-たとえば `self._peek().kind in (TokenKind.STAR, TokenKind.SLASH)` は「次のトークンが `*` か `/` か？」を判定するだけで、カーソルは動かない。
+## Python の読み方（このコードを読むのに必要な分）
 
-**`self._advance()` — 次のトークンを消費する**
-
-```python
-def _advance(self) -> Token:
-    t = self.tokens[self.pos]
-    self.pos += 1
-    return t
-```
-
-カーソル位置のトークンを返して、**カーソルを1つ進める**。
-
-- `_peek()` = **見るだけ**（カーソル動かない）
-- `_advance()` = **読み取って次へ**（カーソル進む）
-
-判定のときは `_peek`、確定したら `_advance`、というペアで使う。
-
-**`self._factor()` — 1つの「項」を読み取る**
-
-```python
-def _factor(self) -> Node:
-    t = self._peek()
-    if t.kind == TokenKind.NUMBER:
-        self._advance()
-        return Num(int(t.value))
-    if t.kind == TokenKind.LPAREN:
-        self._advance()
-        node = self._expr()
-        ...
-```
-
-数値1個（`Num`）か、括弧で囲まれた式（`(...)`）を1つ読んで AST ノードを返す。文法の一番内側＝**もうこれ以上分解できない単位**を扱う層。
-
-たとえば「`_factor()` が `2` を読んで `Num(2)` を返す」というのは内部的にこう動いている：
-
-1. `_peek()` で次のトークンを見る → `NUMBER("2")`
-2. `_advance()` でそのトークンを消費（カーソルが進む）
-3. `Num(2)` という AST ノードを作って返す
-
-#### `_term` が `BinOp("*", 2, 3)` を作る瞬間
-
-`1 + 2 * 3` を読むとき、`2 * 3` の部分が木になる流れを `_term` の中で追う。
-
-```python
-def _term(self) -> Node:
-    node = self._factor()                                            # 行A
-    while self._peek().kind in (TokenKind.STAR, TokenKind.SLASH):
-        op = "*" if self._advance().kind == TokenKind.STAR else "/"  # 行B
-        node = BinOp(op, node, self._factor())                       # 行C
-    return node
-```
-
-| ステップ | 行 | 起きること | この時点の変数 |
-|---|---|---|---|
-| 1 | 行A | `_factor()` が `2` を読んで `Num(2)` を返す | `node = Num(2)` |
-| 2 | while条件 | 次のトークンは `*` → 条件成立、ループに入る | `node = Num(2)` |
-| 3 | 行B | `*` を消費して `op = "*"` | `op = "*"`, `node = Num(2)` |
-| 4 | 行C 評価中 | 右側の `self._factor()` が呼ばれて `3` を読み `Num(3)` を返す | （戻り値 = `Num(3)`） |
-| 5 | 行C 代入 | `BinOp("*", Num(2), Num(3))` を作って `node` を上書き | `node = BinOp("*", Num(2), Num(3))` |
-| 6 | while条件 | 次は EOF → ループ終了 | |
-| 7 | return | `node` を返す | 戻り値 = `BinOp("*", Num(2), Num(3))` |
-
-ポイントは**行C の `BinOp(op, node, self._factor())` という1行**：
-
-- 第1引数 `op` = `"*"`
-- 第2引数 `node` = `Num(2)`（直前の `_factor()` の結果を変数に取っておいたもの）
-- 第3引数 `self._factor()` = この場で呼んで `Num(3)` を取ってくる
-
-「左を変数で保持しておく／右はその場で取りに行く／3つまとめて BinOp にする」、これだけ。
-
-#### 使われている Python 構文
-
-**メソッド定義の読み方（`def ... -> Token:`）**
-
-```python
-def _peek(self, offset: int = 0) -> Token:
-```
-
-これは次のように読む：
-
-```
-def _peek(self, offset: int = 0) -> Token:
- │   │     │      │      │   │     │
- │   │     │      │      │   │     └ 戻り値の型：このメソッドは Token を返す
- │   │     │      │      │   └ デフォルト値（指定しなければ 0）
- │   │     │      │      └ offset の型注釈（int）
- │   │     │      └ 第2引数の名前：offset
- │   │     └ 第1引数：self（自分自身のインスタンス）
- │   └ メソッド名：_peek
- └ キーワード：これから関数/メソッドを定義する
-```
-
-- `_peek` は**これから定義しようとしているメソッドの名前**（クラスではない）
-- `Token` は**このメソッドが返す値の型**（呼ばれるオブジェクトではない）
-- 引数の `: int = 0` は「型は int、デフォルトは 0」
-
-別の例：
-
-```python
-def add(x: int, y: int) -> int:
-    return x + y
-
-result = add(2, 3)   # result = 5
-```
-
-**`from ... import ...` — 別ファイルの定義を持ってくる**
-
-[parser.py:1-2](../parser.py#L1-L2)：
-
-```python
-from tokens import Token, TokenKind
-from ast_nodes import Num, BinOp, Node
-```
-
-`from <ファイル名> import <名前>` は「別のファイルで定義してあるクラスや関数を、このファイル内で使えるようにする」という命令。
-
-- `from tokens import Token` → tokens.py で定義されている `Token` を、このファイル内で `Token` という名前で参照できるようにする
-- `Token` の実体は import 元のファイル（tokens.py）にある
-
-これにより、parser.py で `def _peek(...) -> Token:` と書ける（`Token` はファイル先頭で持ち込み済みのため）。「型がどこから来ているか」を追うときは、ファイル冒頭の import 文を見れば分かる。
-
-**`@dataclass` で自動生成されるコンストラクタ**
-
-```python
-@dataclass
-class BinOp:
-    op: str
-    left: Node
-    right: Node
-
-# __init__ を自分で書かなくても以下が使える：
-node = BinOp("*", Num(2), Num(3))
-node.op       # "*"
-node.left     # Num(2)
-```
-
-**引数の中で関数を呼ぶ**
-
-```python
-BinOp(op, node, self._factor())
-```
-
-Python の評価規則：
-
-1. `op` の値を取る
-2. `node` の値を取る
-3. `self._factor()` を実行して戻り値を取る（ここで `Num(3)` が返る）
-4. 揃った3引数で `BinOp(...)` を呼んでインスタンスを作る
-
-引数は**左から順に評価され**、全部揃ってから外側の関数が呼ばれる。
-
-**`node = ...` の上書き（変数の使い回し）**
-
-```python
-node = self._factor()             # node = Num(2)
-node = BinOp("*", node, ...)      # node = BinOp("*", Num(2), ...)
-                                  # ↑ 元の Num(2) は新しい BinOp の left に取り込まれてから上書きされる
-```
-
-変数 `node` を使い回しているが、**直前の値を新しい BinOp の中に取り込んでから上書きする**ので情報は失われない。これが左結合（`1 - 2 - 3` を `(1 - 2) - 3` にする）の仕組みでもある。
-
-**`self` の意味**
-
-`self._factor()` の `self` は「今このメソッドが呼ばれているインスタンス自身」。`self` を書かないとローカル変数扱いになって `_factor` が見つけられない。Python のメソッドは必ず第1引数に `self` を取る決まり。
-
-### Evaluator (`evaluator.py`)
-
-- `Num` なら `node.value` を返す
-- `BinOp` なら左右を再帰評価し、`op` に応じて Python の `+` `-` `*` `/` を呼ぶ
-
-> 実際の計算は Python の演算子に丸投げしている。Evaluator がやっているのは「BinOp ノードの `op` を見て、どの Python 演算子を呼ぶか振り分ける」だけ。
-
-### main.py
-
-`input()` で1行受け取り、Lexer → Parser → Evaluator を通して結果を表示する REPL。`Ctrl+C` / `Ctrl+D` で終了。
-
-## Python 初心者向け：コードの読み方
-
-Python 初心者にとって、コード中に出てくる名前のうち「**Python 自体の機能**」と「**このプロジェクトで定義したもの**」を見分けるのが難しい。ここをまとめておく。
+Python 初心者にとって、コード中に出てくる名前のうち「**Python 自体の機能**」と「**このプロジェクトで定義したもの**」を見分けるのが難しい。ここをまとめておくと、実装セクションを読むときに迷子になりにくい。
 
 ### 「Python 独自」と「プロジェクト独自」の見分け方
 
@@ -341,6 +118,44 @@ def evaluate(node, env):           # ← 関数（self なし）
 - 関数：**直接呼ぶ** → `evaluate(tree, env)`
 
 第1引数に `self` があるかどうかで見分けられる。
+
+### メソッド定義の読み方（`def ... -> Token:`）
+
+```python
+def _peek(self, offset: int = 0) -> Token:
+```
+
+これは次のように読む：
+
+```
+def _peek(self, offset: int = 0) -> Token:
+ │   │     │      │      │   │     │
+ │   │     │      │      │   │     └ 戻り値の型：このメソッドは Token を返す
+ │   │     │      │      │   └ デフォルト値（指定しなければ 0）
+ │   │     │      │      └ offset の型注釈（int）
+ │   │     │      └ 第2引数の名前：offset
+ │   │     └ 第1引数：self（自分自身のインスタンス）
+ │   └ メソッド名：_peek
+ └ キーワード：これから関数/メソッドを定義する
+```
+
+- `_peek` は**これから定義しようとしているメソッドの名前**（クラスではない）
+- `Token` は**このメソッドが返す値の型**（呼ばれるオブジェクトではない）
+- 引数の `: int = 0` は「型は int、デフォルトは 0」
+
+### `from ... import ...` — 別ファイルの定義を持ってくる
+
+```python
+from tokens import Token, TokenKind
+from ast_nodes import Num, BinOp, Node
+```
+
+`from <ファイル名> import <名前>` は「別のファイルで定義してあるクラスや関数を、このファイル内で使えるようにする」という命令。
+
+- `from tokens import Token` → tokens.py で定義されている `Token` を、このファイル内で `Token` という名前で参照できるようにする
+- `Token` の実体は import 元のファイル（tokens.py）にある
+
+「型がどこから来ているか」を追うときは、ファイル冒頭の import 文を見れば分かる。
 
 ### `@dataclass` がある場合とない場合の違い
 
@@ -396,10 +211,6 @@ class Parser:
 
 同じ「`.メソッド名()`」の形でも、**左側のオブジェクトが何か**（リストか自作クラスか）でメソッドの出どころが変わる。
 
-#### `_` 始まりの慣習
-
-`_peek` のようにアンダースコア始まりの名前は、Python の慣習で「**そのクラス／モジュール内部用、外から呼ばない約束**」を示すサイン。これも我々が付けた名前で、Python 強制ではなくマナー。
-
 ### `TokenKind` と `Enum` の仕組み
 
 `tokens.py` 冒頭：
@@ -420,16 +231,7 @@ class TokenKind(Enum):
 
 つまり `TokenKind.NUMBER` は「数字種別を表す**専用の値**」であり、文字列 `"NUMBER"` でも整数でもない。`TokenKind.NUMBER == TokenKind.NUMBER` は `True`、`TokenKind.NUMBER == TokenKind.PLUS` は `False`。
 
-### `Token` インスタンスの中身と例
-
-`Token` クラス（`tokens.py`）：
-
-```python
-@dataclass
-class Token:
-    kind: TokenKind
-    value: str | None = None
-```
+### `Token` インスタンスの中身（デバッグ出力で確認）
 
 各 `Token` インスタンスは2つのフィールドを持つ：
 
@@ -438,81 +240,11 @@ class Token:
 | `kind` | `TokenKind.NUMBER` | このトークンの**種類**（enum メンバー） |
 | `value` | `"12"` | 種類に付随する**文字列の中身**（記号系は `None`） |
 
-具体的な Token インスタンスの例：
-
-```python
-Token(TokenKind.NUMBER, "12")    # 数字 "12"
-Token(TokenKind.PLUS, None)      # 記号 "+"
-Token(TokenKind.IDENT, "x")      # 識別子 "x"（step 2 以降）
-Token(TokenKind.EOF, None)       # 終端マーカー
-```
-
-### Token を作っているのは Lexer（Parser ではない）
-
-Token は **Parser が作っているのではなく、Lexer が作っている**。これは重要な分担。
-
-`lexer.py` の `tokenize()` の中で、文字を読んで該当する Token を生成しリストに追加していく：
-
-```python
-elif ch.isdigit():
-    tokens.append(self._number())        # _number() が Token(NUMBER, "12") を返す
-elif ch == "+":
-    tokens.append(Token(TokenKind.PLUS)) # Token(PLUS, None) を作って追加
-    self.pos += 1
-```
-
-`_number()` の中身：
-
-```python
-def _number(self) -> Token:
-    start = self.pos
-    while self.pos < len(self.source) and self.source[self.pos].isdigit():
-        self.pos += 1
-    return Token(TokenKind.NUMBER, self.source[start:self.pos])
-    #     ↑ ここで Token インスタンスを作っている
-```
-
-Parser はもう出来上がった**リストを受け取って読むだけ**。Token を新規に作ったりはしない。
-
-### データの流れ：文字列 → トークン列 → AST
-
-入力：`"1 + 2 * 3"`
-
-#### この表での表記について（凡例）
-
-長くなるのを避けるため、表の中では**短縮表記**を使う：
-
-| 表中の表記 | 実際の Python の式（完全形） |
-|---|---|
-| `NUMBER("1")` | `Token(TokenKind.NUMBER, "1")` |
-| `PLUS` | `Token(TokenKind.PLUS, None)` |
-| `Token(NUMBER, "1")` | `Token(TokenKind.NUMBER, "1")`（`TokenKind.` を省略） |
-
-短縮表記は**読みやすさのためだけ**で、実際の Python コードや実行時の値は常に完全形 `Token(TokenKind.NUMBER, "1")` です。
-
-#### Lexer の処理（1文字ずつ進める）
-
-| 読んだ文字 | 作る Token | tokens リストの状態 |
-|---|---|---|
-| `1` | `Token(NUMBER, "1")` | `[NUMBER("1")]` |
-| ` ` | （スキップ） | 同 |
-| `+` | `Token(PLUS, None)` | `[NUMBER("1"), PLUS]` |
-| ` ` | （スキップ） | 同 |
-| `2` | `Token(NUMBER, "2")` | `[NUMBER("1"), PLUS, NUMBER("2")]` |
-| ` ` | （スキップ） | 同 |
-| `*` | `Token(STAR, None)` | `[NUMBER("1"), PLUS, NUMBER("2"), STAR]` |
-| `3` | `Token(NUMBER, "3")` | `[NUMBER("1"), PLUS, NUMBER("2"), STAR, NUMBER("3")]` |
-| 終端 | `Token(EOF, None)` | `[NUMBER("1"), PLUS, NUMBER("2"), STAR, NUMBER("3"), EOF]` |
-
-#### 実際に動かしてみた出力（デバッグ例）
-
-Python の REPL や `print()` で確認するときは、`@dataclass` が自動生成する `__repr__` で全フィールドが見える完全形が表示される：
+実際に動かして `print()` で確認：
 
 ```python
 from lexer import Lexer
-src = "1 + 2 * 3"
-tokens = Lexer(src).tokenize()
-for t in tokens:
+for t in Lexer("1 + 2 * 3").tokenize():
     print(t)
 ```
 
@@ -531,60 +263,23 @@ Token(kind=<TokenKind.EOF: 26>, value=None)
 
 - どの Token も**必ず `kind` と `value` の両方のフィールドを持っている**（`value` が `None` でも存在する）
 - `<TokenKind.NUMBER: 1>` の右の `: 1` は `auto()` が割り当てた整数値。比較には使わない（`==` は名前で判定）
-- `value='1'` は文字列の `"1"`。**整数に変換するのは Parser の `_factor` の中で `int(t.value)` を呼ぶ瞬間**
+- `value='1'` は**文字列**の `"1"`。整数に変換するのは Parser の `_factor` の中で `int(t.value)` を呼ぶ瞬間
 
-Python の dict と list のリテラルで書けば、上のリストはこうなっている：
+### Token を作っているのは Lexer（Parser ではない）
 
-```python
-tokens = [
-    Token(TokenKind.NUMBER, "1"),
-    Token(TokenKind.PLUS,   None),
-    Token(TokenKind.NUMBER, "2"),
-    Token(TokenKind.STAR,   None),
-    Token(TokenKind.NUMBER, "3"),
-    Token(TokenKind.EOF,    None),
-]
-```
+Token は **Parser が作っているのではなく、Lexer が作っている**。これは重要な分担。
 
-#### Parser への受け渡し
-
-この**完成したリストが Parser に渡される**：
+`lexer.py` の `tokenize()` の中で、文字を読んで該当する Token を生成しリストに追加していく：
 
 ```python
-tokens = Lexer(source).tokenize()    # ← Lexer が Token を作る
-program = Parser(tokens).parse()     # ← Parser はリストを読むだけ
+elif ch.isdigit():
+    tokens.append(self._number())        # _number() が Token(NUMBER, "12") を返す
+elif ch == "+":
+    tokens.append(Token(TokenKind.PLUS)) # Token(PLUS, None) を作って追加
+    self.pos += 1
 ```
 
-まとめると：
-
-```
-入力文字列 "1+2"
-   ↓ Lexer.tokenize() が Token を作る
-tokens = [Token(TokenKind.NUMBER, "1"),
-          Token(TokenKind.PLUS,   None),
-          Token(TokenKind.NUMBER, "2"),
-          Token(TokenKind.EOF,    None)]
-   ↓ Parser は tokens を読むだけ（新規に Token を作らない）
-Parser が t.kind を見て分岐し AST を組み立てる
-   ↓
-AST: BinOp("+", Num(1), Num(2))
-```
-
-`t.kind == TokenKind.NUMBER` が出てくる場面（次のサブセクションで解説）は、**Lexer が前もって作っておいた Token の `kind` フィールドを Parser が読んで判定している**、という関係です。
-
-#### 自分で試すには
-
-`minilang/` ディレクトリで Python REPL を起動して以下を実行すれば、Lexer の出力をいつでも確認できる：
-
-```
-$ cd /Users/apple/Desktop/Site/minilang
-$ python3
->>> from lexer import Lexer
->>> for t in Lexer("1 + 2 * 3").tokenize():
-...     print(t)
-```
-
-入力文字列を変えれば、その都度どんなトークン列が作られるかが見える（**Lexer が壊れていないかの目視確認**に使える）。
+Parser はもう出来上がった**リストを受け取って読むだけ**。Token を新規に作ったりはしない。
 
 ### `self.tokens[self.pos]` の読み方（リストアクセス）
 
@@ -614,13 +309,13 @@ def _advance(self) -> Token:
     return t                    # 3. t を返す
 ```
 
-`self.pos += 1` は `self.pos = self.pos + 1` の短縮形（**Python の augmented assignment**）。**これがカーソルを次のトークンに進める部分**。これがあるから、次に `_peek()` を呼ぶと違うトークンが見える。
+`self.pos += 1` は `self.pos = self.pos + 1` の短縮形（**Python の augmented assignment**）。**これがカーソルを次のトークンに進める部分**。
 
 `_peek()` と `_advance()` の違いは**カーソルを動かすかどうか**だけ：
 
 | | カーソル | 用途 |
 |---|---|---|
-| `_peek()` | **動かさない** | 「次に何が来るか」を判定したいとき（`if` / `while` の条件） |
+| `_peek()` | **動かさない** | 「次に何が来るか」を判定したいとき |
 | `_advance()` | **1つ進める** | 判定後、確定して読み取りたいとき |
 
 ### `t.kind == TokenKind.NUMBER` の読み方（属性アクセスと比較）
@@ -638,7 +333,7 @@ if t.kind == TokenKind.NUMBER:
 | `.kind` | tokens.py の属性 | `@dataclass class Token` の `kind: TokenKind` フィールド |
 | `TokenKind` | tokens.py の enum | `class TokenKind(Enum)` |
 | `.NUMBER` | TokenKind のメンバー | `NUMBER = auto()` で定義 |
-| `==` | Python の比較演算子 | 等しいかを bool（`True` / `False`）で返す |
+| `==` | Python の比較演算子 | 等しいかを bool で返す |
 
 意味は「**`t` のフィールド `kind` が `TokenKind.NUMBER` と等しいか？**」＝「次のトークンは数字か？」の判定。
 
@@ -666,6 +361,239 @@ class Num:
 
 `int(t.value)` の `int` は **Python の組み込み型**（小文字始まり）。文字列を整数に変換する。同じ「`X(...)`」の形でも、X が何者かで意味が変わる。
 
+## 実装：3段の中身
+
+ここまでで全体の見取り図と Python の読み方が揃ったので、各段の中身に入る。
+
+### トークン (`tokens.py`)
+
+トークンは、Lexer が文字列を切り分けて作る「**意味のある単位**」。step 1 で使う種類：
+
+| TokenKind | 表す文字 | 意味 | `value` の例 |
+|---|---|---|---|
+| `NUMBER` | `0-9` の並び | 数字リテラル | `"12"` |
+| `PLUS` | `+` | 加算演算子 | `None` |
+| `MINUS` | `-` | 減算演算子 | `None` |
+| `STAR` | `*` | 乗算演算子 | `None` |
+| `SLASH` | `/` | 除算演算子 | `None` |
+| `LPAREN` | `(` | 開き括弧 | `None` |
+| `RPAREN` | `)` | 閉じ括弧 | `None` |
+| `EOF` | — | 終端マーカー（Lexer が末尾に必ず1つ付ける） | `None` |
+
+`NUMBER` だけ `value` に「実際の数字文字列」が入る。記号は種類だけ分かれば意味が決まるので `value` は `None`。
+
+`Token` クラスは `kind: TokenKind` と `value: str | None` の2フィールドだけを持つ単純なデータ入れ物（`@dataclass`）。`TokenKind` は取りうる種類を限定するための enum。
+
+### Lexer (`lexer.py`)
+
+#### なぜトークンに分けるのか
+
+生の文字列 `"1 + 2 * 3"` には、Parser にとって本質ではない問題が混ざっている：
+
+- 空白を飛ばす
+- `12` のような複数桁を「1個の数」として読み取る
+- 文字（`+`）と数字（`2`）と単語（`print`）が混在している
+
+これらを Lexer が片付けて `[1, +, 2, *, 3]` のような**意味のある単位の列**に整える。Parser は「次のトークンは何か」だけ見ればよくなり、**文字レベルの処理から解放される**。
+
+役割分担：
+
+- **Lexer = 文字の世界**：空白、数字のまとまり、キーワード判別
+- **Parser = トークンの世界**：文法、優先順位、構造
+
+#### 実装
+
+- 入力文字列を1文字ずつ進めるカーソル方式
+- 数字が続いたら `NUMBER` トークン（連続する桁を1つにまとめる）、空白は飛ばす、1文字記号はそのまま対応するトークンに
+- 最後に必ず `EOF` を1つ付ける
+- 未知の文字は `SyntaxError`
+
+#### `"1 + 2 * 3"` を Lexer が処理する流れ
+
+| 読んだ文字 | 作る Token | tokens リストの状態（短縮表記） |
+|---|---|---|
+| `1` | `Token(NUMBER, "1")` | `[NUMBER("1")]` |
+| ` ` | （スキップ） | 同 |
+| `+` | `Token(PLUS, None)` | `[NUMBER("1"), PLUS]` |
+| ` ` | （スキップ） | 同 |
+| `2` | `Token(NUMBER, "2")` | `[NUMBER("1"), PLUS, NUMBER("2")]` |
+| ` ` | （スキップ） | 同 |
+| `*` | `Token(STAR, None)` | `[NUMBER("1"), PLUS, NUMBER("2"), STAR]` |
+| `3` | `Token(NUMBER, "3")` | `[..., STAR, NUMBER("3")]` |
+| 終端 | `Token(EOF, None)` | `[..., NUMBER("3"), EOF]` |
+
+> 表の中の `NUMBER("1")` は `Token(TokenKind.NUMBER, "1")` の**短縮表記**。実際に Python のリストに入っているのは完全形の Token インスタンス。
+
+### AST ノード (`ast_nodes.py`)
+
+AST（抽象構文木）のノード。step 1 では2種類だけ：
+
+| ノード | フィールド | 意味 |
+|---|---|---|
+| `Num` | `value: int` | 数値リテラル（**葉**ノード。これ以上分解されない） |
+| `BinOp` | `op: str`, `left: Node`, `right: Node` | 二項演算（**内部**ノード。左右に子を持つ） |
+
+`Num(2)` は `value=2` を持つだけのシンプルなノード。`BinOp("+", Num(1), Num(2))` は「`Num(1) + Num(2)`」を表す。**Num が葉、BinOp が枝**として木構造を作る。
+
+`(1 + 2) * 3` のような括弧式も、最終的には BinOp のネストとして表現される：
+
+```python
+BinOp("*",
+    BinOp("+", Num(1), Num(2)),     # 内側の (1+2)
+    Num(3))
+```
+
+**括弧自体はトークン列には現れるが、AST には残らない**（木の形に焼き込まれる）。`(1+2)*3` と `1+2*3` で木の形が違うのが優先順位の表現。
+
+### Parser (`parser.py`) — 再帰下降
+
+#### なぜ構文木にするのか
+
+トークン列 `[1, +, 2, *, 3]` は**平坦**で、どこからどこまでが一塊か分からない。`*` が `+` より先、というルールがこの並びだけからは読み取れない。
+
+そこで構造を木にする：
+
+```
+       BinOp(+)
+       /     \
+      1     BinOp(*)
+             /    \
+            2      3
+```
+
+この木があれば、Evaluator は**葉から順に評価する**だけで自動的に正しい順番（`2*3` を先、その結果と `1` を後）で計算できる。**優先順位の判断は Parser が一度だけ行い、結果が木の形に焼き付けられる**。
+
+`(1+2)*3` だと木の形が変わる：
+
+```
+       BinOp(*)
+       /     \
+   BinOp(+)   3
+    /   \
+   1     2
+```
+
+形が違うだけで、Evaluator のコードは1行も変えなくていい。
+
+#### 実装：文法を関数に1対1対応させる
+
+```
+expr   = term   (('+' | '-') term)*
+term   = factor (('*' | '/') factor)*
+factor = NUMBER | '(' expr ')'
+```
+
+- `_expr` / `_term` / `_factor` の3関数
+- **優先順位**は「呼ばれる深さ」で表現される（`_expr` が `_term` を呼び、`_term` が `_factor` を呼ぶ。`*` `/` の方が `+` `-` より**内側**で処理される＝**先に**評価される）
+- **左結合**（`1 - 2 - 3` が `(1 - 2) - 3` になる）は `while` ループで実現
+
+#### Parser のヘルパーメソッド
+
+トレースに入る前に、Parser クラスが持つ補助メソッドを把握しておく。
+
+**`self._peek()` — 次のトークンを覗き見する**
+
+```python
+def _peek(self, offset: int = 0) -> Token:
+    return self.tokens[self.pos + offset]
+```
+
+カーソル位置のトークンを**消費せずに**返す。判定だけしたいときに使う。
+
+**`self._advance()` — 次のトークンを消費する**
+
+```python
+def _advance(self) -> Token:
+    t = self.tokens[self.pos]
+    self.pos += 1
+    return t
+```
+
+カーソル位置のトークンを返して、**カーソルを1つ進める**。
+
+**`self._factor()` — 1つの「項」を読み取る**
+
+```python
+def _factor(self) -> Node:
+    t = self._peek()
+    if t.kind == TokenKind.NUMBER:
+        self._advance()
+        return Num(int(t.value))
+    if t.kind == TokenKind.LPAREN:
+        self._advance()
+        node = self._expr()
+        ...
+```
+
+数値1個（`Num`）か、括弧で囲まれた式（`(...)`）を1つ読んで AST ノードを返す。文法の一番内側＝**もうこれ以上分解できない単位**を扱う層。
+
+#### `_term` が `BinOp("*", 2, 3)` を作る瞬間
+
+`1 + 2 * 3` を読むとき、`2 * 3` の部分が木になる流れを `_term` の中で追う。
+
+```python
+def _term(self) -> Node:
+    node = self._factor()                                            # 行A
+    while self._peek().kind in (TokenKind.STAR, TokenKind.SLASH):
+        op = "*" if self._advance().kind == TokenKind.STAR else "/"  # 行B
+        node = BinOp(op, node, self._factor())                       # 行C
+    return node
+```
+
+| ステップ | 行 | 起きること | この時点の変数 |
+|---|---|---|---|
+| 1 | 行A | `_factor()` が `2` を読んで `Num(2)` を返す | `node = Num(2)` |
+| 2 | while条件 | 次のトークンは `*` → 条件成立、ループに入る | `node = Num(2)` |
+| 3 | 行B | `*` を消費して `op = "*"` | `op = "*"`, `node = Num(2)` |
+| 4 | 行C 評価中 | 右側の `self._factor()` が呼ばれて `3` を読み `Num(3)` を返す | （戻り値 = `Num(3)`） |
+| 5 | 行C 代入 | `BinOp("*", Num(2), Num(3))` を作って `node` を上書き | `node = BinOp("*", Num(2), Num(3))` |
+| 6 | while条件 | 次は EOF → ループ終了 | |
+| 7 | return | `node` を返す | 戻り値 = `BinOp("*", Num(2), Num(3))` |
+
+ポイントは**行C の `BinOp(op, node, self._factor())` という1行**：
+
+- 第1引数 `op` = `"*"`
+- 第2引数 `node` = `Num(2)`（直前の `_factor()` の結果を変数に取っておいたもの）
+- 第3引数 `self._factor()` = この場で呼んで `Num(3)` を取ってくる
+
+「左を変数で保持しておく／右はその場で取りに行く／3つまとめて BinOp にする」、これだけ。
+
+#### 引数の中で関数を呼ぶ評価順
+
+```python
+BinOp(op, node, self._factor())
+```
+
+Python の評価規則：
+
+1. `op` の値を取る
+2. `node` の値を取る
+3. `self._factor()` を実行して戻り値を取る（ここで `Num(3)` が返る）
+4. 揃った3引数で `BinOp(...)` を呼んでインスタンスを作る
+
+引数は**左から順に評価され**、全部揃ってから外側の関数が呼ばれる。
+
+#### `node = ...` の上書きが左結合を作る
+
+```python
+node = self._factor()             # node = Num(2)
+node = BinOp("*", node, ...)      # node = BinOp("*", Num(2), ...)
+                                  # ↑ 元の Num(2) は新しい BinOp の left に取り込まれてから上書きされる
+```
+
+変数 `node` を使い回しているが、**直前の値を新しい BinOp の中に取り込んでから上書きする**ので情報は失われない。これが左結合（`1 - 2 - 3` を `(1 - 2) - 3` にする）の仕組みでもある。
+
+### Evaluator (`evaluator.py`)
+
+- `Num` なら `node.value` を返す
+- `BinOp` なら左右を再帰評価し、`op` に応じて Python の `+` `-` `*` `/` を呼ぶ
+
+> 実際の計算は Python の演算子に丸投げしている。Evaluator がやっているのは「BinOp ノードの `op` を見て、どの Python 演算子を呼ぶか振り分ける」だけ。
+
+### main.py
+
+`input()` で1行受け取り、Lexer → Parser → Evaluator を通して結果を表示する REPL。`Ctrl+C` / `Ctrl+D` で終了。
+
 ## 完了の判定
 
 以下が動けば step 1 完了：
@@ -686,3 +614,15 @@ class Num:
 - **Lexer がおかしい**：`print(Lexer(src).tokenize())` でトークン列を目視確認
 - **Parser がおかしい**：`print(Parser(tokens).parse())` で AST を目視確認。優先順位どおりに木になっているか
 - **Evaluator がおかしい**：AST は合っているはずなので評価関数の再帰だけ疑う
+
+#### 自分で Lexer の出力を見てみる
+
+```
+$ cd /Users/apple/Desktop/Site/minilang
+$ python3
+>>> from lexer import Lexer
+>>> for t in Lexer("1 + 2 * 3").tokenize():
+...     print(t)
+```
+
+入力文字列を変えれば、その都度どんなトークン列が作られるかが見える。
