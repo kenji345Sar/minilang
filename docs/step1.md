@@ -615,14 +615,139 @@ node = BinOp("*", node, ...)      # node = BinOp("*", Num(2), ...)
 - **Parser がおかしい**：`print(Parser(tokens).parse())` で AST を目視確認。優先順位どおりに木になっているか
 - **Evaluator がおかしい**：AST は合っているはずなので評価関数の再帰だけ疑う
 
-#### 自分で Lexer の出力を見てみる
+## 各段の出力を実際に見る（デバッグ例）
+
+`main.py` を一時的に改造して、Lexer / Parser / Evaluator それぞれの出力を覗ける：
+
+```python
+def run(source: str):
+    tokens = Lexer(source).tokenize()
+    print("--- tokens ---")
+    for t in tokens:
+        print(" ", t)
+
+    tree = Parser(tokens).parse()
+    print("--- AST ---")
+    print(" ", tree)
+
+    result = evaluate(tree)
+    print("--- result ---")
+    print(" ", result)
+    return result
+```
+
+これで「文字列 → トークン列 → AST → 値」の3段が**1つの入力でどう姿を変えるか**を一度に見られる。
+
+### 例1：`1+2*3`
+
+```
+> 1+2*3
+--- tokens ---
+  Token(kind=<TokenKind.NUMBER: 1>, value='1')
+  Token(kind=<TokenKind.PLUS: 2>, value=None)
+  Token(kind=<TokenKind.NUMBER: 1>, value='2')
+  Token(kind=<TokenKind.STAR: 4>, value=None)
+  Token(kind=<TokenKind.NUMBER: 1>, value='3')
+  Token(kind=<TokenKind.EOF: 8>, value=None)
+--- AST ---
+  BinOp(op='+', left=Num(value=1), right=BinOp(op='*', left=Num(value=2), right=Num(value=3)))
+--- result ---
+  7
+```
+
+AST を読みやすい形にすると：
+
+```
+BinOp(op='+',
+      left=Num(value=1),
+      right=BinOp(op='*',
+                  left=Num(value=2),
+                  right=Num(value=3)))
+```
+
+- 外側の `BinOp("+")` は左に `Num(1)`、右にもう1つの BinOp
+- 内側の `BinOp("*")` は左に `Num(2)`、右に `Num(3)`
+- **`*` が内側にある** → Evaluator が再帰で葉から戻ってくるとき先に評価される（`2*3=6` を先、`1+6=7` を後）
+
+### 例2：`(1+2)*3`（括弧で順番が変わる）
+
+```
+> (1+2)*3
+--- tokens ---
+  Token(kind=<TokenKind.LPAREN: 6>, value=None)
+  Token(kind=<TokenKind.NUMBER: 1>, value='1')
+  Token(kind=<TokenKind.PLUS: 2>, value=None)
+  Token(kind=<TokenKind.NUMBER: 1>, value='2')
+  Token(kind=<TokenKind.RPAREN: 7>, value=None)
+  Token(kind=<TokenKind.STAR: 4>, value=None)
+  Token(kind=<TokenKind.NUMBER: 1>, value='3')
+  Token(kind=<TokenKind.EOF: 8>, value=None)
+--- AST ---
+  BinOp(op='*', left=BinOp(op='+', left=Num(value=1), right=Num(value=2)), right=Num(value=3))
+--- result ---
+  9
+```
+
+AST を整形：
+
+```
+BinOp(op='*',
+      left=BinOp(op='+',
+                 left=Num(value=1),
+                 right=Num(value=2)),
+      right=Num(value=3))
+```
+
+例1と比べると **木の形が違う**：
+
+- 例1 `1+2*3`：`*` が内側、`+` が外側 → `2*3=6` を先、`1+6=7`
+- 例2 `(1+2)*3`：**`+` が内側、`*` が外側** → `1+2=3` を先、`3*3=9`
+
+括弧トークン `LPAREN` / `RPAREN` は**トークン列には現れるが AST には残らない**ことに注目。Parser の `_factor` が `(` を見たら中身を読み終わって `)` を消費し、**中身の木だけを返す**から。
+
+### 例3：`10-4/2`（左結合と除算の優先順位）
+
+```
+> 10-4/2
+--- AST ---
+  BinOp(op='-', left=Num(value=10), right=BinOp(op='/', left=Num(value=4), right=Num(value=2)))
+--- result ---
+  8.0
+```
+
+`/` が内側、`-` が外側。`4/2=2.0` を先、`10-2.0=8.0`。Python の `/` は浮動小数点除算なので結果が `8.0`（float）になる。
+
+### 形の違いまとめ
+
+| 入力 | AST の形（簡易表記） | 結果 |
+|---|---|---|
+| `1+2*3` | `(1) + ((2) * (3))` | `7` |
+| `(1+2)*3` | `((1) + (2)) * (3)` | `9` |
+| `10-4/2` | `(10) - ((4) / (2))` | `8.0` |
+
+「**優先順位の判断は Parser が一度だけ行い、結果が木の形に焼き付けられる**」というのが、この AST の形の違いに表れている。Evaluator は形が違うだけで同じコード（再帰で葉から評価）が走るので、何も変えなくていい。
+
+### REPL で各段の出力を見る
+
+`main.py` を改造せずに、Python の対話モードから各段を直接呼んで確認することもできる：
 
 ```
 $ cd /Users/apple/Desktop/Site/minilang
 $ python3
 >>> from lexer import Lexer
->>> for t in Lexer("1 + 2 * 3").tokenize():
-...     print(t)
+>>> from parser import Parser
+>>> from evaluator import evaluate
+>>>
+>>> tokens = Lexer("1 + 2 * 3").tokenize()
+>>> tokens
+[Token(kind=<TokenKind.NUMBER: 1>, value='1'), Token(kind=<TokenKind.PLUS: 2>, value=None), ...]
+>>>
+>>> tree = Parser(tokens).parse()
+>>> tree
+BinOp(op='+', left=Num(value=1), right=BinOp(op='*', left=Num(value=2), right=Num(value=3)))
+>>>
+>>> evaluate(tree)
+7
 ```
 
-入力文字列を変えれば、その都度どんなトークン列が作られるかが見える。
+入力文字列を変えれば、その都度どんなトークン列・どんな AST が作られるかが見える。**バグが出たときの切り分け（Lexer / Parser / Evaluator のどこか）にも使える**。
