@@ -320,6 +320,86 @@ Python 初心者にとって、コード中に出てくる名前のうち「**Py
 
 `Num(2)` のように大文字始まりに `(...)` が付いていたら「クラスのインスタンスを作っている」、`evaluate(node)` のように小文字始まりなら「関数を呼んでいる」、と読み分けられる。
 
+### `def` は関数とメソッドの両方を定義する
+
+`def` は**関数とメソッドの両方**を定義するキーワード。区別は「**どこに書いてあるか**」で決まる：
+
+```python
+# class の中に書いた def → メソッド
+class Parser:
+    def _peek(self, offset=0):    # ← メソッド（self が第1引数）
+        ...
+
+# class の外（ファイル直下）に書いた def → 普通の関数
+def evaluate(node, env):           # ← 関数（self なし）
+    ...
+```
+
+呼び出し方も違う：
+
+- メソッド：**そのクラスのインスタンスを通して呼ぶ** → `parser._peek()`
+- 関数：**直接呼ぶ** → `evaluate(tree, env)`
+
+第1引数に `self` があるかどうかで見分けられる。
+
+### `@dataclass` がある場合とない場合の違い
+
+**ある場合**（`Token`、`Num`、`BinOp` など）：
+
+```python
+@dataclass
+class Token:
+    kind: TokenKind
+    value: str | None = None
+```
+
+`@dataclass` がフィールド定義を読み取って `__init__` を**自動生成**する。だから `__init__` を書いていないのに `Token(TokenKind.NUMBER, "2")` が動く。`__repr__` や `__eq__` も自動生成される。
+
+**ない場合**（`Parser`、`Lexer`、`Env`、`Function`）：
+
+```python
+class Parser:
+    def __init__(self, tokens: list[Token]):
+        self.tokens = tokens
+        self.pos = 0
+```
+
+`__init__` を**自分で書く**必要がある。`def __init__(self, tokens):` が「インスタンスを作るときに呼ばれる初期化メソッド」で、ここで `self.tokens` と `self.pos` を設定している。
+
+#### 使い分け
+
+| | 用途 | 例 |
+|---|---|---|
+| `@dataclass` 付き | **データの入れ物**：フィールドを並べるだけ | `Token`、`Num`、`BinOp` |
+| `@dataclass` なし | **動作を持つクラス**：状態を管理しメソッドで操作する | `Parser`、`Lexer`、`Env` |
+
+ざっくり：**フィールドを並べたいだけ → `@dataclass`、メソッドで何かするクラス → 普通の class**。
+
+### ヘルパーメソッドは私たちが作ったもの（Python 組み込みではない）
+
+`_peek` / `_advance` / `_factor` などは**全部 `parser.py` 内で `def` で定義したメソッド**で、Python が用意してくれているものではない。
+
+#### Python 組み込みメソッドとの対比
+
+| 用途 | Python 組み込みメソッド | プロジェクトのメソッド |
+|---|---|---|
+| リストに追加 | `list.append(x)` | — |
+| 文字列を小文字に | `str.lower()` | — |
+| 辞書のキー取得 | `dict.keys()` | — |
+| 次のトークンを見る | — | `Parser._peek()`（自作） |
+| カーソルを進める | — | `Parser._advance()`（自作） |
+
+`statements.append(self._statement())` を例にすると：
+
+- `statements.append(...)` ← **Python の組み込み**（リストに要素を追加するメソッド）
+- `self._statement()` ← **私たちが作ったメソッド**（Parser クラス内で `def _statement` と定義）
+
+同じ「`.メソッド名()`」の形でも、**左側のオブジェクトが何か**（リストか自作クラスか）でメソッドの出どころが変わる。
+
+#### `_` 始まりの慣習
+
+`_peek` のようにアンダースコア始まりの名前は、Python の慣習で「**そのクラス／モジュール内部用、外から呼ばない約束**」を示すサイン。これも我々が付けた名前で、Python 強制ではなくマナー。
+
 ### `self.tokens[self.pos]` の読み方（リストアクセス）
 
 `_peek()` の中身：
