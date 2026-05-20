@@ -118,7 +118,7 @@ Python には `eval("1+2*3")` という、文字列を渡せば `7` を返す機
 | Step 3 | 文の並び | `if` / `while` で分岐・反復 | 制御フローのノード |
 | Step 4 | 文の並び | 関数定義と呼び出し（クロージャ） | スコープ・第一級関数 |
 
-各ステップの実装詳細は `docs/stepN.md`。用語（REPL、AST、env など）の定義は [docs/glossary.md](docs/glossary.md)。
+各ステップの実装詳細は `docs/stepN.md`。用語（REPL、AST、env など）の定義は [docs/glossary.md](docs/glossary.md)。Python がどこまで肩代わりしていて minilang がどこを担当しているかは [docs/abstraction-layers.md](docs/abstraction-layers.md)。
 
 ## 動かす
 
@@ -159,7 +159,8 @@ minilang/
 │   ├── step2.md
 │   ├── step3.md
 │   ├── step4.md
-│   └── glossary.md
+│   ├── glossary.md
+│   └── abstraction-layers.md
 ├── main.py            REPL エントリ（現在のステップ）
 ├── tokens.py          Token / TokenKind 定義
 ├── lexer.py           文字列 → トークン列
