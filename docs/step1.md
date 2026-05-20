@@ -400,6 +400,119 @@ class Parser:
 
 `_peek` のようにアンダースコア始まりの名前は、Python の慣習で「**そのクラス／モジュール内部用、外から呼ばない約束**」を示すサイン。これも我々が付けた名前で、Python 強制ではなくマナー。
 
+### `TokenKind` と `Enum` の仕組み
+
+`tokens.py` 冒頭：
+
+```python
+from enum import Enum, auto
+
+class TokenKind(Enum):
+    NUMBER = auto()
+    PLUS = auto()
+    MINUS = auto()
+    ...
+```
+
+- `Enum` ＝ Python 標準ライブラリの「**取りうる値が限定されたタグ集合**」を作るためのクラス
+- `NUMBER = auto()` ＝ `NUMBER` という名前のメンバーを定義。`auto()` は自動で重複しない整数値（1, 2, 3, ...）を割り当てる
+- 値そのもの（1 や 2 という整数）は中身として使わない。**比較するのはメンバー名同士**
+
+つまり `TokenKind.NUMBER` は「数字種別を表す**専用の値**」であり、文字列 `"NUMBER"` でも整数でもない。`TokenKind.NUMBER == TokenKind.NUMBER` は `True`、`TokenKind.NUMBER == TokenKind.PLUS` は `False`。
+
+### `Token` インスタンスの中身と例
+
+`Token` クラス（`tokens.py`）：
+
+```python
+@dataclass
+class Token:
+    kind: TokenKind
+    value: str | None = None
+```
+
+各 `Token` インスタンスは2つのフィールドを持つ：
+
+| フィールド | 例 | 意味 |
+|---|---|---|
+| `kind` | `TokenKind.NUMBER` | このトークンの**種類**（enum メンバー） |
+| `value` | `"12"` | 種類に付随する**文字列の中身**（記号系は `None`） |
+
+具体的な Token インスタンスの例：
+
+```python
+Token(TokenKind.NUMBER, "12")    # 数字 "12"
+Token(TokenKind.PLUS, None)      # 記号 "+"
+Token(TokenKind.IDENT, "x")      # 識別子 "x"（step 2 以降）
+Token(TokenKind.EOF, None)       # 終端マーカー
+```
+
+### Token を作っているのは Lexer（Parser ではない）
+
+Token は **Parser が作っているのではなく、Lexer が作っている**。これは重要な分担。
+
+`lexer.py` の `tokenize()` の中で、文字を読んで該当する Token を生成しリストに追加していく：
+
+```python
+elif ch.isdigit():
+    tokens.append(self._number())        # _number() が Token(NUMBER, "12") を返す
+elif ch == "+":
+    tokens.append(Token(TokenKind.PLUS)) # Token(PLUS, None) を作って追加
+    self.pos += 1
+```
+
+`_number()` の中身：
+
+```python
+def _number(self) -> Token:
+    start = self.pos
+    while self.pos < len(self.source) and self.source[self.pos].isdigit():
+        self.pos += 1
+    return Token(TokenKind.NUMBER, self.source[start:self.pos])
+    #     ↑ ここで Token インスタンスを作っている
+```
+
+Parser はもう出来上がった**リストを受け取って読むだけ**。Token を新規に作ったりはしない。
+
+### データの流れ：文字列 → トークン列 → AST
+
+入力：`"1 + 2 * 3"`
+
+Lexer の処理（1文字ずつ進める）：
+
+| 読んだ文字 | 作る Token | tokens リストの状態 |
+|---|---|---|
+| `1` | `Token(NUMBER, "1")` | `[NUMBER("1")]` |
+| ` ` | （スキップ） | 同 |
+| `+` | `Token(PLUS, None)` | `[NUMBER("1"), PLUS]` |
+| ` ` | （スキップ） | 同 |
+| `2` | `Token(NUMBER, "2")` | `[NUMBER("1"), PLUS, NUMBER("2")]` |
+| ` ` | （スキップ） | 同 |
+| `*` | `Token(STAR, None)` | `[NUMBER("1"), PLUS, NUMBER("2"), STAR]` |
+| `3` | `Token(NUMBER, "3")` | `[NUMBER("1"), PLUS, NUMBER("2"), STAR, NUMBER("3")]` |
+| 終端 | `Token(EOF, None)` | `[NUMBER("1"), PLUS, NUMBER("2"), STAR, NUMBER("3"), EOF]` |
+
+この**完成したリストが Parser に渡される**：
+
+```python
+tokens = Lexer(source).tokenize()    # ← Lexer が Token を作る
+program = Parser(tokens).parse()     # ← Parser はリストを読むだけ
+```
+
+まとめると：
+
+```
+入力文字列 "1+2"
+   ↓ Lexer.tokenize() が Token を作る
+tokens = [Token(NUMBER, "1"), Token(PLUS, None), Token(NUMBER, "2"), Token(EOF, None)]
+   ↓ Parser は tokens を読むだけ（新規に Token を作らない）
+Parser が t.kind を見て分岐し AST を組み立てる
+   ↓
+AST: BinOp("+", Num(1), Num(2))
+```
+
+`t.kind == TokenKind.NUMBER` が出てくる場面（次のサブセクションで解説）は、**Lexer が前もって作っておいた Token の `kind` フィールドを Parser が読んで判定している**、という関係です。
+
 ### `self.tokens[self.pos]` の読み方（リストアクセス）
 
 `_peek()` の中身：
