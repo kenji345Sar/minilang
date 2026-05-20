@@ -149,6 +149,64 @@ if node.op == "+":
 
 「あえてできないことにしている」ではなく、「**手順だけは自分で書く、材料は買う**」という分業。料理を学ぶときに小麦を育てるところから始めないのと同じ理屈。
 
+## minilang と CPython の対比
+
+minilang を理解すると、Python の `eval()` の中で何が起きているか想像できるようになる。ただし**精密には3点違う**：
+
+### 違い1：実装言語が C（Python ではない）
+
+CPython（Python 3 の標準実装）の `eval()` は **C で書かれている**。minilang は同じ概念を Python レベルで表現している。読みにくさは段違いだが、**やっている仕事の構造は同じ**。
+
+### 違い2：CPython は4段構成（minilang は3段）
+
+```
+ソース文字列
+   ↓ Lexer（Parser/tokenizer.c）
+トークン列
+   ↓ Parser（Parser/parser.c, PEG パーサ）
+AST（Python の ast モジュールから見える）
+   ↓ Compiler（Python/compile.c）
+バイトコード（dis モジュールで見える）
+   ↓ Evaluator/VM（Python/ceval.c）
+実行結果
+```
+
+| | minilang | CPython |
+|---|---|---|
+| 段数 | **3段** | **4段**（AST とコードの間にバイトコードを挟む） |
+| Evaluator の方式 | **tree-walking**（AST を直接歩いて実行） | **bytecode**（AST → バイトコードに翻訳して VM で実行） |
+
+バイトコードを挟むのは**性能**のため（同じコードを何度も実行する場合に有利）。学習用には bytecode を省いた tree-walking のほうが分かりやすいので、minilang はそちらを採用。
+
+### 違い3：扱う言語のサイズが桁違い
+
+| | minilang | Python |
+|---|---|---|
+| 機能 | 四則演算、変数、`if`/`while`、関数（クロージャ） | + クラス、import、ジェネレータ、デコレータ、async/await、メタクラス、… |
+| ソース規模 | 数百行 | 数十万行 |
+
+CPython の `Parser/tokenizer.c` を開けば、minilang の `_number()` に対応する処理が見つかる。**「同じ仕事をしている」のは分かるが、規模は10倍以上**。
+
+### 関係性のまとめ
+
+> `eval()` の中身は「**同じ系統のアルゴリズムが、より大規模・より高速・別言語（C）で・段数を1つ増やして**実装されているもの」。
+
+minilang は「**それを最短経路で、読み手が追える形に縮めたもの**」。学習で得たパターンは、CPython のソースを読むときの**地図**になる。
+
+### CPython のソースを読みに行くなら
+
+CPython の実際のソース：[https://github.com/python/cpython](https://github.com/python/cpython)
+
+| ファイル | 役割 | minilang の対応 |
+|---|---|---|
+| `Parser/tokenizer.c` | Lexer | `lexer.py` |
+| `Parser/` 配下 | Parser（PEG ベース） | `parser.py` |
+| `Include/internal/pycore_ast.h` ほか | AST 定義 | `ast_nodes.py` |
+| `Python/compile.c` | AST → バイトコード変換 | （minilang にはない段） |
+| `Python/ceval.c` | バイトコードを実行するメインループ | `evaluator.py` |
+
+minilang を理解した状態で `tokenizer.c` を覗くと、「あ、これは `_number()` 相当だな」「これはキーワード判別のテーブルだな」と**パターンが見えてくる**はず。
+
 ## 結論
 
 「Python がどこまで肩代わりしているか」の答え：
