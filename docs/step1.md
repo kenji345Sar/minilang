@@ -478,7 +478,19 @@ Parser はもう出来上がった**リストを受け取って読むだけ**。
 
 入力：`"1 + 2 * 3"`
 
-Lexer の処理（1文字ずつ進める）：
+#### この表での表記について（凡例）
+
+長くなるのを避けるため、表の中では**短縮表記**を使う：
+
+| 表中の表記 | 実際の Python の式（完全形） |
+|---|---|
+| `NUMBER("1")` | `Token(TokenKind.NUMBER, "1")` |
+| `PLUS` | `Token(TokenKind.PLUS, None)` |
+| `Token(NUMBER, "1")` | `Token(TokenKind.NUMBER, "1")`（`TokenKind.` を省略） |
+
+短縮表記は**読みやすさのためだけ**で、実際の Python コードや実行時の値は常に完全形 `Token(TokenKind.NUMBER, "1")` です。
+
+#### Lexer の処理（1文字ずつ進める）
 
 | 読んだ文字 | 作る Token | tokens リストの状態 |
 |---|---|---|
@@ -492,6 +504,50 @@ Lexer の処理（1文字ずつ進める）：
 | `3` | `Token(NUMBER, "3")` | `[NUMBER("1"), PLUS, NUMBER("2"), STAR, NUMBER("3")]` |
 | 終端 | `Token(EOF, None)` | `[NUMBER("1"), PLUS, NUMBER("2"), STAR, NUMBER("3"), EOF]` |
 
+#### 実際に動かしてみた出力（デバッグ例）
+
+Python の REPL や `print()` で確認するときは、`@dataclass` が自動生成する `__repr__` で全フィールドが見える完全形が表示される：
+
+```python
+from lexer import Lexer
+src = "1 + 2 * 3"
+tokens = Lexer(src).tokenize()
+for t in tokens:
+    print(t)
+```
+
+実行結果：
+
+```
+Token(kind=<TokenKind.NUMBER: 1>, value='1')
+Token(kind=<TokenKind.PLUS: 3>, value=None)
+Token(kind=<TokenKind.NUMBER: 1>, value='2')
+Token(kind=<TokenKind.STAR: 5>, value=None)
+Token(kind=<TokenKind.NUMBER: 1>, value='3')
+Token(kind=<TokenKind.EOF: 26>, value=None)
+```
+
+ポイント：
+
+- どの Token も**必ず `kind` と `value` の両方のフィールドを持っている**（`value` が `None` でも存在する）
+- `<TokenKind.NUMBER: 1>` の右の `: 1` は `auto()` が割り当てた整数値。比較には使わない（`==` は名前で判定）
+- `value='1'` は文字列の `"1"`。**整数に変換するのは Parser の `_factor` の中で `int(t.value)` を呼ぶ瞬間**
+
+Python の dict と list のリテラルで書けば、上のリストはこうなっている：
+
+```python
+tokens = [
+    Token(TokenKind.NUMBER, "1"),
+    Token(TokenKind.PLUS,   None),
+    Token(TokenKind.NUMBER, "2"),
+    Token(TokenKind.STAR,   None),
+    Token(TokenKind.NUMBER, "3"),
+    Token(TokenKind.EOF,    None),
+]
+```
+
+#### Parser への受け渡し
+
 この**完成したリストが Parser に渡される**：
 
 ```python
@@ -504,7 +560,10 @@ program = Parser(tokens).parse()     # ← Parser はリストを読むだけ
 ```
 入力文字列 "1+2"
    ↓ Lexer.tokenize() が Token を作る
-tokens = [Token(NUMBER, "1"), Token(PLUS, None), Token(NUMBER, "2"), Token(EOF, None)]
+tokens = [Token(TokenKind.NUMBER, "1"),
+          Token(TokenKind.PLUS,   None),
+          Token(TokenKind.NUMBER, "2"),
+          Token(TokenKind.EOF,    None)]
    ↓ Parser は tokens を読むだけ（新規に Token を作らない）
 Parser が t.kind を見て分岐し AST を組み立てる
    ↓
@@ -512,6 +571,20 @@ AST: BinOp("+", Num(1), Num(2))
 ```
 
 `t.kind == TokenKind.NUMBER` が出てくる場面（次のサブセクションで解説）は、**Lexer が前もって作っておいた Token の `kind` フィールドを Parser が読んで判定している**、という関係です。
+
+#### 自分で試すには
+
+`minilang/` ディレクトリで Python REPL を起動して以下を実行すれば、Lexer の出力をいつでも確認できる：
+
+```
+$ cd /Users/apple/Desktop/Site/minilang
+$ python3
+>>> from lexer import Lexer
+>>> for t in Lexer("1 + 2 * 3").tokenize():
+...     print(t)
+```
+
+入力文字列を変えれば、その都度どんなトークン列が作られるかが見える（**Lexer が壊れていないかの目視確認**に使える）。
 
 ### `self.tokens[self.pos]` の読み方（リストアクセス）
 
